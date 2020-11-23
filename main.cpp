@@ -349,6 +349,7 @@ struct ColorRun {
 	int y;
 	rgb color = rgb(0, 0, 0);
 	ColorRun(int startX, int endX, int y, rgb color) : startX(startX), endX(endX), y(y), color(color) {};
+	ColorRun() {};
 };
 
 bool similarColor2(char* imd, int x, int y, rgb color) {
@@ -440,26 +441,6 @@ void MainWindow::OnPaint()
 				}
 			}
 
-			//cvtColor(src, src_gray, cv::COLOR_BGR2GRAY);
-			//blur(src_gray, src_gray, Size(3, 3));
-
-			/// Detect edges using canny
-			//Canny(src_gray, canny_output, 100, 100 * 2, 3);
-			/// Find contours
-			//findContours(canny_output, contours, hierarchy, cv::RETR_LIST, cv::CHAIN_APPROX_NONE, Point(0, 0));
-
-			/*string s1 = "contour count: " + to_string(contours.size()) + "\n";
-			std::wstring widestr = std::wstring(s1.begin(), s1.end());
-			OutputDebugStringW(widestr.c_str());
-
-			for (int i = 0, len = contours.size(); i < len; i++) {
-				for (int j = 1, jLen = contours[i].size(); j < jLen; j++) {
-					string s1 = "(" + to_string(contours[i][j].x - contours[i][j-1].x) + ", " + to_string(contours[i][j].y - contours[i][j-1].y) + ")\n";
-					std::wstring widestr = std::wstring(s1.begin(), s1.end());
-					OutputDebugStringW(widestr.c_str());
-				}
-			}*/
-
 			frameEdgeBytes.push_back(curByteIdx - prevByteIdx);
 			frameEdgeBits.push_back(curBitIdx);
 
@@ -541,12 +522,13 @@ void MainWindow::OnPaint()
 							UINT8 avg_green = sum_green / run_width;
 							UINT8 avg_blue = sum_blue / run_width;
 							runs[y][i]->color = rgb((UINT8)avg_red, (UINT8)avg_green, (UINT8)avg_blue);
-							for (int startX = runs[y][i]->startX, endX = runs[y][i]->endX, x = startX; x <= endX; x++) {
-								interp_pixels2[runs[y][i]->y * frameWidth * 4 + x * 4] = (UINT8)runs[y][i]->color.r;
-								interp_pixels2[runs[y][i]->y * frameWidth * 4 + x * 4 + 1] = (UINT8)runs[y][i]->color.g;
-								interp_pixels2[runs[y][i]->y * frameWidth * 4 + x * 4 + 2] = (UINT8)runs[y][i]->color.b;
-								interp_pixels2[runs[y][i]->y * frameWidth * 4 + x * 4 + 3] = (UINT8)255;
-							}
+						}
+						for (int startX = runs[y][i]->startX, endX = runs[y][i]->endX, x = startX; x <= endX; x++) {
+							int curpx = runs[y][i]->y * frameWidth * 4 + x * 4;
+							interp_pixels2[curpx] = (UINT8)runs[y][i]->color.r;
+							interp_pixels2[curpx + 1] = (UINT8)runs[y][i]->color.g;
+							interp_pixels2[curpx + 2] = (UINT8)runs[y][i]->color.b;
+							interp_pixels2[curpx + 3] = (UINT8)255;
 						}
 						delete runs[y][i];
 					}
