@@ -170,7 +170,7 @@ class MainWindow : public BaseWindow<MainWindow>
 public:
 
 	ID2D1StrokeStyle* pStrokeStyle;
-	int frameIndex = 0;
+	int frameIndex = 2000;
 	int frameCount;
 
 	MainWindow() : pFactory(NULL), pRenderTarget(NULL), pBrush(NULL)
@@ -343,10 +343,12 @@ bool similarColor(char* imd, char* imd2, int x, int y, rgb color) {
 	return !noticeablyDifferent(rgb(red, green, blue), color);
 }
 
-struct PixelArea {
-	map<int, int> StartXByY;
-	map<int, int> EndXByY;
-	rgb Color = rgb(0,0,0);
+struct ColorRun {
+	int startX;
+	int endX;
+	int y;
+	rgb color = rgb(0, 0, 0);
+	ColorRun(int startX, int endX, int y, rgb color) : startX(startX), endX(endX), y(y), color(color) {};
 };
 
 bool similarColor2(char* imd, int x, int y, rgb color) {
@@ -430,7 +432,7 @@ void MainWindow::OnPaint()
 						curFrame[idx] = src.at<Pixel>(y, x).z;
 						curFrame[idx + 1] = src.at<Pixel>(y, x).y;
 						curFrame[idx + 2] = src.at<Pixel>(y, x).x;
-						curFrame[idx + 3] = 255;
+						curFrame[idx + 3] = (UINT8)255;
 						//}
 
 						x++;
@@ -468,50 +470,92 @@ void MainWindow::OnPaint()
 
 			char* interp_pixels = curFrame;
 			char* interp_pixels2 = new char[frameWidth * frameHeight * 4];
+			char* interp_pixels3 = new char[frameWidth * frameHeight * 4];
 
 			//int y;
 			//int x;
 			int rows;
 			int cols;
 
-			map<int, map<int, PixelArea*>> pxAreas;
+			map<int, vector<ColorRun*>> runs;
+			ColorRun* curRun = nullptr;
 
 			{
 				typedef cv::Point3_<uint8_t> Pixel;
 				int px_idx = 0;
 				rows = frameHeight;
 				for (y = 0, rows = frameHeight; y < rows; y += 1) {
-					pxAreas[y] = {};
-					for (x = 0, cols = frameWidth; x < cols - 1; x += 1) {
+					runs[y] = {};
+					curRun = nullptr;
+					for (x = 0, cols = frameWidth; x < cols; x += 1) {
 						int curpx = (y)* frameWidth * 4 + (x) * 4;
 						int aboveleft = (y-1)* frameWidth * 4 + (x - 1) * 4;
 						int abovetop = (y - 1) * frameWidth * 4 + (x) * 4;
 						int left = y * frameWidth * 4 + (x - 1) * 4;
 
-						if (x > 0) {	
-							if (noticeablyDifferent(rgb((UINT8)interp_pixels[left], (UINT8)interp_pixels[left + 1], (UINT8)interp_pixels[left + 2]), rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]))) {
-								interp_pixels2[curpx + 3] = (UINT8)255;
-							}
+						if (curRun == nullptr) {
+							curRun = new ColorRun(x, x, y, rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]));
+							runs[y].push_back(curRun);
 						}
 
-						if (y > 0) {
-							if (noticeablyDifferent(rgb((UINT8)interp_pixels[abovetop], (UINT8)interp_pixels[abovetop + 1], (UINT8)interp_pixels[abovetop + 2]), rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]))) {
-								interp_pixels2[curpx + 3] = (UINT8)255;
+						if (x > 0) {
+							if (noticeablyDifferent(rgb((UINT8)interp_pixels[left], (UINT8)interp_pixels[left + 1], (UINT8)interp_pixels[left + 2]), rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]))) {
+								interp_pixels3[curpx + 3] = 255;
+								curRun->endX = x - 1;
+								curRun = new ColorRun(x, x, y, rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]));
+								runs[y].push_back(curRun);
+							}
+							else {
+								curRun->endX = x;
 							}
 						}
 
 						if (x > 0 && y > 0) {
 							if (noticeablyDifferent(rgb((UINT8)interp_pixels[aboveleft], (UINT8)interp_pixels[aboveleft + 1], (UINT8)interp_pixels[aboveleft + 2]), rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]))) {
-								interp_pixels2[curpx + 3] = (UINT8)255;
+								interp_pixels3[curpx + 3] = 255;
 							}
 						}
+
+						if (y > 0) {
+							if (noticeablyDifferent(rgb((UINT8)interp_pixels[abovetop], (UINT8)interp_pixels[abovetop + 1], (UINT8)interp_pixels[abovetop + 2]), rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]))) {
+								interp_pixels3[curpx + 3] = 255;
+							}
+						}
+					}
+
+					for (int i = 0, len = runs[y].size(); i < len; i++) {
+						int sum_red = 0;
+						int sum_green = 0;
+						int sum_blue = 0;
+						for (int startX = runs[y][i]->startX, endX = runs[y][i]->endX, x = startX; x <= endX; x++) {
+							UINT8 red = (UINT8)interp_pixels[runs[y][i]->y * frameWidth * 4 + x * 4];
+							UINT8 green = (UINT8)interp_pixels[runs[y][i]->y * frameWidth * 4 + x * 4 + 1];
+							UINT8 blue = (UINT8)interp_pixels[runs[y][i]->y * frameWidth * 4 + x * 4 + 2];
+							sum_red += (int)red;
+							sum_green += (int)green;
+							sum_blue += (int)blue;
+						}
+						int run_width = runs[y][i]->endX - runs[y][i]->startX + 1;
+						if (run_width) {
+							UINT8 avg_red = sum_red / run_width;
+							UINT8 avg_green = sum_green / run_width;
+							UINT8 avg_blue = sum_blue / run_width;
+							runs[y][i]->color = rgb((UINT8)avg_red, (UINT8)avg_green, (UINT8)avg_blue);
+							for (int startX = runs[y][i]->startX, endX = runs[y][i]->endX, x = startX; x <= endX; x++) {
+								interp_pixels2[runs[y][i]->y * frameWidth * 4 + x * 4] = (UINT8)runs[y][i]->color.r;
+								interp_pixels2[runs[y][i]->y * frameWidth * 4 + x * 4 + 1] = (UINT8)runs[y][i]->color.g;
+								interp_pixels2[runs[y][i]->y * frameWidth * 4 + x * 4 + 2] = (UINT8)runs[y][i]->color.b;
+								interp_pixels2[runs[y][i]->y * frameWidth * 4 + x * 4 + 3] = (UINT8)255;
+							}
+						}
+						delete runs[y][i];
 					}
 				}
 			}
 
 			if (true || i == 1) {
 				ID2D1Bitmap* pBitmap = NULL;
-				hr = pRenderTarget->CreateBitmap(D2D1::SizeU(frameWidth, frameHeight), interp_pixels2, frameWidth * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &pBitmap);
+				hr = pRenderTarget->CreateBitmap(D2D1::SizeU(frameWidth, frameHeight), interp_pixels2, frameWidth * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_R8G8B8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &pBitmap);
 
 				// Draw a bitmap.
 				pRenderTarget->DrawBitmap(
@@ -519,8 +563,25 @@ void MainWindow::OnPaint()
 					D2D1::RectF(
 						0,
 						0,
-						frameWidth,
-						frameHeight
+						frameWidth * 0.8,
+						frameHeight * 0.8
+					),
+					1.0
+				);
+
+				SafeRelease(&pBitmap);
+
+				pBitmap = NULL;
+				hr = pRenderTarget->CreateBitmap(D2D1::SizeU(frameWidth, frameHeight), interp_pixels3, frameWidth * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_R8G8B8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &pBitmap);
+
+				// Draw a bitmap.
+				pRenderTarget->DrawBitmap(
+					pBitmap,
+					D2D1::RectF(
+						0,
+						frameHeight * 0.8,
+						frameWidth * 0.8,
+						frameHeight * 2 * 0.8
 					),
 					1.0
 				);
@@ -532,6 +593,7 @@ void MainWindow::OnPaint()
 
 			delete[] interp_pixels;
 			delete[] interp_pixels2;
+			delete[] interp_pixels3;
 
 			//break;
 		}
