@@ -343,15 +343,6 @@ bool similarColor(char* imd, char* imd2, int x, int y, rgb color) {
 	return !noticeablyDifferent(rgb(red, green, blue), color);
 }
 
-struct ColorRun {
-	int startX;
-	int endX;
-	int y;
-	rgb color = rgb(0, 0, 0);
-	ColorRun(int startX, int endX, int y, rgb color) : startX(startX), endX(endX), y(y), color(color) {};
-	ColorRun() {};
-};
-
 bool similarColor2(char* imd, int x, int y, rgb color) {
 	int curpx = (y)* frameWidth * 4 + (x) * 4;
 	return (UINT8)imd[curpx + 3] == 255;// && !noticeablyDifferent(rgb((UINT8)imd[curpx], (UINT8)imd[curpx + 1], (UINT8)imd[curpx + 2]), color);
@@ -410,9 +401,12 @@ void MainWindow::OnPaint()
 			}
 
 			char* curFrame = new char[frameWidth * frameHeight * 4];
+			char* interp_pixels4 = new char[frameWidth * frameHeight * 4];
+			char* interp_pixels5 = new char[frameWidth * frameHeight * 4];
 
 			mov >> src;
 
+			vector<IntPoint> motionVectors;
 			resize(src, src, Size(frameWidth, frameHeight), 0, 0, cv::INTER_CUBIC);
 
 			if (!src.empty())
@@ -433,13 +427,33 @@ void MainWindow::OnPaint()
 						curFrame[idx] = src.at<Pixel>(y, x).z;
 						curFrame[idx + 1] = src.at<Pixel>(y, x).y;
 						curFrame[idx + 2] = src.at<Pixel>(y, x).x;
-						curFrame[idx + 3] = (UINT8)255;
+						curFrame[idx + 3] = 255;
 						//}
 
 						x++;
 					}
 				}
 			}
+
+			//cvtColor(src, src_gray, cv::COLOR_BGR2GRAY);
+			//blur(src_gray, src_gray, Size(3, 3));
+
+			/// Detect edges using canny
+			//Canny(src_gray, canny_output, 100, 100 * 2, 3);
+			/// Find contours
+			//findContours(canny_output, contours, hierarchy, cv::RETR_LIST, cv::CHAIN_APPROX_NONE, Point(0, 0));
+
+			/*string s1 = "contour count: " + to_string(contours.size()) + "\n";
+			std::wstring widestr = std::wstring(s1.begin(), s1.end());
+			OutputDebugStringW(widestr.c_str());
+
+			for (int i = 0, len = contours.size(); i < len; i++) {
+				for (int j = 1, jLen = contours[i].size(); j < jLen; j++) {
+					string s1 = "(" + to_string(contours[i][j].x - contours[i][j-1].x) + ", " + to_string(contours[i][j].y - contours[i][j-1].y) + ")\n";
+					std::wstring widestr = std::wstring(s1.begin(), s1.end());
+					OutputDebugStringW(widestr.c_str());
+				}
+			}*/
 
 			frameEdgeBytes.push_back(curByteIdx - prevByteIdx);
 			frameEdgeBits.push_back(curBitIdx);
@@ -451,93 +465,241 @@ void MainWindow::OnPaint()
 
 			char* interp_pixels = curFrame;
 			char* interp_pixels2 = new char[frameWidth * frameHeight * 4];
-			char* interp_pixels3 = new char[frameWidth * frameHeight * 4];
 
 			//int y;
 			//int x;
 			int rows;
 			int cols;
 
-			map<int, vector<ColorRun*>> runs;
-			ColorRun* curRun = nullptr;
+			map<int, vector<IntPoint>> clrmap;
+			map<int, int> totalPixelCountPerColor;
+			vector<IntPoint> startPoints;
 
 			{
 				typedef cv::Point3_<uint8_t> Pixel;
 				int px_idx = 0;
 				rows = frameHeight;
 				for (y = 0, rows = frameHeight; y < rows; y += 1) {
-					runs[y] = {};
-					curRun = nullptr;
-					for (x = 0, cols = frameWidth; x < cols; x += 1) {
+					for (x = 0, cols = frameWidth; x < cols - 1; x += 1) {
 						int curpx = (y)* frameWidth * 4 + (x) * 4;
-						int aboveleft = (y-1)* frameWidth * 4 + (x - 1) * 4;
-						int abovetop = (y - 1) * frameWidth * 4 + (x) * 4;
-						int left = y * frameWidth * 4 + (x - 1) * 4;
-
-						if (curRun == nullptr) {
-							curRun = new ColorRun(x, x, y, rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]));
-							runs[y].push_back(curRun);
+						int nextpx = (y)* frameWidth * 4 + (x + 1) * 4;
+						if ((UINT8)interp_pixels2[curpx + 3] == 255 || (UINT8)interp_pixels2[nextpx + 3] == 255 || noticeablyDifferent(rgb((UINT8)interp_pixels[nextpx], (UINT8)interp_pixels[nextpx + 1], (UINT8)interp_pixels[nextpx + 2]), rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]))) {
+							continue;
 						}
+						interp_pixels2[curpx + 3] = 255;
+						interp_pixels2[nextpx + 3] = 255;
+						interp_pixels2[curpx + 2] = interp_pixels[curpx];
+						interp_pixels2[curpx + 1] = interp_pixels[curpx + 1];
+						interp_pixels2[curpx] = interp_pixels[curpx + 2];
+						interp_pixels2[nextpx + 2] = interp_pixels[nextpx];
+						interp_pixels2[nextpx + 1] = interp_pixels[nextpx + 1];
+						interp_pixels2[nextpx] = interp_pixels[nextpx + 2];
 
-						if (x > 0) {
-							if (noticeablyDifferent(rgb((UINT8)interp_pixels[left], (UINT8)interp_pixels[left + 1], (UINT8)interp_pixels[left + 2]), rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]))) {
-								interp_pixels3[curpx + 3] = 255;
-								curRun->endX = x - 1;
-								curRun = new ColorRun(x, x, y, rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]));
-								runs[y].push_back(curRun);
-							}
-							else {
-								curRun->endX = x;
-							}
-						}
-
-						if (x > 0 && y > 0) {
-							if (noticeablyDifferent(rgb((UINT8)interp_pixels[aboveleft], (UINT8)interp_pixels[aboveleft + 1], (UINT8)interp_pixels[aboveleft + 2]), rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]))) {
-								interp_pixels3[curpx + 3] = 255;
-							}
-						}
-
-						if (y > 0) {
-							if (noticeablyDifferent(rgb((UINT8)interp_pixels[abovetop], (UINT8)interp_pixels[abovetop + 1], (UINT8)interp_pixels[abovetop + 2]), rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]))) {
-								interp_pixels3[curpx + 3] = 255;
-							}
-						}
-					}
-
-					for (int i = 0, len = runs[y].size(); i < len; i++) {
+						rgb fillColor = rgb((UINT8)interp_pixels[nextpx], (UINT8)interp_pixels[nextpx + 1], (UINT8)interp_pixels[nextpx + 2]);
+						std::deque<IntPoint> q;
+						std::vector<IntPoint> qq;
+						q.push_back(IntPoint(x + 1, y));
 						int sum_red = 0;
 						int sum_green = 0;
 						int sum_blue = 0;
-						for (int startX = runs[y][i]->startX, endX = runs[y][i]->endX, x = startX; x <= endX; x++) {
-							UINT8 red = (UINT8)interp_pixels[runs[y][i]->y * frameWidth * 4 + x * 4];
-							UINT8 green = (UINT8)interp_pixels[runs[y][i]->y * frameWidth * 4 + x * 4 + 1];
-							UINT8 blue = (UINT8)interp_pixels[runs[y][i]->y * frameWidth * 4 + x * 4 + 2];
-							sum_red += (int)red;
-							sum_green += (int)green;
-							sum_blue += (int)blue;
+						while (!q.empty()) {
+							IntPoint n = q.front();
+							curpx = (n.y) * frameWidth * 4 + (n.x) * 4;
+							rgb compColor = rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]);
+							compColor = fillColor;
+							q.pop_front();
+							if (n.x > 0 && similarColor(interp_pixels, interp_pixels2, n.x - 1, n.y, compColor)) {
+								interp_pixels2[(n.y) * frameWidth * 4 + (n.x - 1) * 4 + 3] = (UINT8)255;
+								sum_blue += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x - 1) * 4 + 2];
+								sum_green += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x - 1) * 4 + 1];
+								sum_red += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x - 1) * 4];
+								q.push_back(IntPoint(n.x - 1, n.y));
+								qq.push_back(IntPoint(n.x - 1, n.y));
+							}
+							if (n.x < cols - 1 && similarColor(interp_pixels, interp_pixels2, n.x + 1, n.y, compColor)) {
+								interp_pixels2[(n.y) * frameWidth * 4 + (n.x + 1) * 4 + 3] = (UINT8)255;
+								sum_blue += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x + 1) * 4 + 2];
+								sum_green += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x + 1) * 4 + 1];
+								sum_red += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x + 1) * 4];
+								q.push_back(IntPoint(n.x + 1, n.y));
+								qq.push_back(IntPoint(n.x + 1, n.y));
+							}
+							if (n.y > 0 && similarColor(interp_pixels, interp_pixels2, n.x, n.y - 1, compColor)) {
+								interp_pixels2[(n.y - 1) * frameWidth * 4 + (n.x) * 4 + 3] = (UINT8)255;
+								sum_blue += (UINT8)interp_pixels[(n.y - 1) * frameWidth * 4 + (n.x) * 4 + 2];
+								sum_green += (UINT8)interp_pixels[(n.y - 1) * frameWidth * 4 + (n.x) * 4 + 1];
+								sum_red += (UINT8)interp_pixels[(n.y - 1) * frameWidth * 4 + (n.x) * 4];
+								q.push_back(IntPoint(n.x, n.y - 1));
+								qq.push_back(IntPoint(n.x, n.y - 1));
+							}
+							if (n.y < rows - 1 && similarColor(interp_pixels, interp_pixels2, n.x, n.y + 1, compColor)) {
+								interp_pixels2[(n.y + 1) * frameWidth * 4 + (n.x) * 4 + 3] = (UINT8)255;
+								sum_blue += (UINT8)interp_pixels[(n.y + 1) * frameWidth * 4 + (n.x) * 4 + 2];
+								sum_green += (UINT8)interp_pixels[(n.y + 1) * frameWidth * 4 + (n.x) * 4 + 1];
+								sum_red += (UINT8)interp_pixels[(n.y + 1) * frameWidth * 4 + (n.x) * 4];
+								q.push_back(IntPoint(n.x, n.y + 1));
+								qq.push_back(IntPoint(n.x, n.y + 1));
+							}
 						}
-						int run_width = runs[y][i]->endX - runs[y][i]->startX + 1;
-						if (run_width) {
-							UINT8 avg_red = sum_red / run_width;
-							UINT8 avg_green = sum_green / run_width;
-							UINT8 avg_blue = sum_blue / run_width;
-							runs[y][i]->color = rgb((UINT8)avg_red, (UINT8)avg_green, (UINT8)avg_blue);
+						int qq_len = qq.size();
+						if (qq_len) {
+							int avg_red = sum_red / qq_len;
+							int avg_green = sum_green / qq_len;
+							int avg_blue = sum_blue / qq_len;
+							for (auto qqq : qq) {
+								int pxidx = (qqq.y) * frameWidth * 4 + (qqq.x) * 4;
+								interp_pixels2[pxidx] = (UINT8)avg_blue;
+								interp_pixels2[pxidx + 1] = (UINT8)avg_green;
+								interp_pixels2[pxidx + 2] = (UINT8)avg_red;
+								interp_pixels2[pxidx + 3] = (UINT8)255;
+							}
 						}
-						for (int startX = runs[y][i]->startX, endX = runs[y][i]->endX, x = startX; x <= endX; x++) {
-							int curpx = runs[y][i]->y * frameWidth * 4 + x * 4;
-							interp_pixels2[curpx] = (UINT8)runs[y][i]->color.r;
-							interp_pixels2[curpx + 1] = (UINT8)runs[y][i]->color.g;
-							interp_pixels2[curpx + 2] = (UINT8)runs[y][i]->color.b;
-							interp_pixels2[curpx + 3] = (UINT8)255;
+					}
+				}
+
+				for (y = 0, rows = frameHeight; y < rows; y += 1) {
+					for (x = 0, cols = frameWidth; x < cols; x += 1) {
+						int pxidx = (y)* frameWidth * 4 + (x) * 4;
+						if ((UINT8)interp_pixels2[pxidx + 3] != 255) {
+							interp_pixels2[pxidx + 2] = (UINT8)interp_pixels[pxidx];
+							interp_pixels2[pxidx + 1] = (UINT8)interp_pixels[pxidx + 1];
+							interp_pixels2[pxidx] = (UINT8)interp_pixels[pxidx + 2];
+							interp_pixels2[pxidx + 3] = 255;
 						}
-						delete runs[y][i];
+						int color_value = (UINT8)interp_pixels2[pxidx + 2] << 16 | (UINT8)interp_pixels2[pxidx + 1] << 8 | (UINT8)interp_pixels2[pxidx];
+						if (x > 0) {
+							int pxidx_prev = (y)* frameWidth * 4 + (x - 1) * 4;
+							if (interp_pixels2[pxidx + 2] == interp_pixels2[pxidx_prev + 2] && interp_pixels2[pxidx + 1] == interp_pixels2[pxidx_prev + 1] && interp_pixels2[pxidx] == interp_pixels2[pxidx_prev]) {
+								interp_pixels2[pxidx_prev + 3] = 255;
+							}
+							else {
+								clrmap[color_value].push_back(IntPoint(x, y));
+							}
+						}
+						else {
+							clrmap[color_value].push_back(IntPoint(x, y));
+						}
+						/*if (totalPixelCountPerColor.find(color_value) == totalPixelCountPerColor.end()) {
+							totalPixelCountPerColor[color_value] = 1;
+						}
+						else {
+							totalPixelCountPerColor[color_value]++;
+						}*/
 					}
 				}
 			}
 
 			if (true || i == 1) {
+				int contourCount = 0;
+				bytecount += 2.0;
+				int colorCount = 0;
+
+				for (auto it = clrmap.begin(); it != clrmap.end(); it++)
+				{
+					if (totalPixelCountPerColor[it->first] >= 16) {
+						colorCount++;
+					}
+				}
+
+				string bits = bitify(colorCount >> 8) + bitify(colorCount & 0xFF);
+				for (auto bit : bits) {
+					addBit(bit == '1');
+				}
+				for (auto it = clrmap.begin(); it != clrmap.end(); it++)
+				{
+					int clr = it->first;
+					int red = clr >> 16 & 0xFF;
+					int green = clr >> 8 & 0xFF;
+					int blue = clr & 0xFF;
+					if (true) {//totalPixelCountPerColor[clr] >= 1) {
+						bytecount += 3;
+						/*Mat canny_output = Mat::zeros(frameHeight, frameWidth, CV_8UC1);
+						vector<vector<Point> > contours;
+						vector<Vec4i> hierarchy;
+						for (auto pt : it->second)
+						{
+							canny_output.at<UINT8>(pt.y, pt.x) = 255;
+						}
+						findContours(canny_output, contours, hierarchy, cv::RETR_LIST, cv::CHAIN_APPROX_NONE, Point(0, 0));
+						bytecount += 2.0;
+						int contourCount = contours.size();
+						*/string bits = bitify((UINT8)red) + bitify((UINT8)green) + bitify((UINT8)blue);
+						for (auto bit : bits) {
+							addBit(bit == '1');
+						}
+						/*bits = bitify(contourCount >> 8) + bitify(contourCount & 0xFF);
+						for (auto bit : bits) {
+							addBit(bit == '1');
+						}
+						for (int i = 0, len = contours.size(); i < len; i++) {
+							IntPoint firstPoint(contours[i][0].x, contours[i][0].y);
+							bytecount += 6.0;
+							string bits = bitify(firstPoint.x >> 8) + bitify(firstPoint.x & 0xFF) + bitify(firstPoint.y >> 8) + bitify(firstPoint.y & 0xFF);
+							for (auto bit : bits) {
+								addBit(bit == '1');
+							}
+							int innerContourSize = contours[i].size();
+							bits = bitify(innerContourSize >> 8) + bitify(innerContourSize & 0xFF);
+							for (auto bit : bits) {
+								addBit(bit == '1');
+							}
+							Point lastDiff;
+							int idx = contours[i][0].y * frameWidth * 4 + contours[i][0].x * 4;
+							interp_pixels4[idx + 2] = (UINT8)red;
+							interp_pixels4[idx + 1] = (UINT8)green;
+							interp_pixels4[idx] = (UINT8)blue;
+							interp_pixels4[idx + 3] = (UINT8)255;
+							for (int j = 1, jLen = contours[i].size(); j < jLen; j++) {
+								int idx = contours[i][j].y * frameWidth * 4 + contours[i][j].x * 4;
+								interp_pixels4[idx + 2] = (UINT8)red;
+								interp_pixels4[idx + 1] = (UINT8)green;
+								interp_pixels4[idx] = (UINT8)blue;
+								interp_pixels4[idx + 3] = (UINT8)255;
+								IntPoint newDiff(contours[i][j].x - contours[i][j - 1].x, contours[i][j].y - contours[i][j - 1].y);
+								if (newDiff.x == lastDiff.x && newDiff.y == lastDiff.y) {
+									addBit(0);
+									bytecount += 0.125;
+								}
+								else if (contours[i][j].x - contours[i][j - 1].x >= -1 && contours[i][j].x - contours[i][j - 1].x <= 1 && contours[i][j].y - contours[i][j - 1].y >= -1 && contours[i][j].y - contours[i][j - 1].y <= 1) {
+									addBit(1);
+									addShortDelta(newDiff);
+									bytecount += 0.125 + 0.5;
+								}
+								lastDiff.x = contours[i][j].x - contours[i][j - 1].x;
+								lastDiff.y = contours[i][j].y - contours[i][j - 1].y;
+							}
+						}
+						for (auto pt : it->second)
+						{
+							int idx = pt.y * frameWidth * 4 + pt.x * 4;
+							interp_pixels4[idx + 2] = (UINT8)red;
+							interp_pixels4[idx + 1] = (UINT8)green;
+							interp_pixels4[idx] = (UINT8)blue;
+							interp_pixels4[idx + 3] = (UINT8)255;
+							//startPoints.push_back(IntPoint(pt.x, pt.y));
+							bytecount += 0.5;
+						}*/
+					}
+				}
+				/*string s1 = "Total contour count: " + to_string(contourCount) + ")\n";
+				std::wstring widestr = std::wstring(s1.begin(), s1.end());
+				OutputDebugStringW(widestr.c_str());*/
+
+				/*for (y = 0, rows = frameHeight; y < rows; y += 1) {
+					for (x = 0, cols = frameWidth - 1; x < cols; x += 1) {
+						int pxidx = (y)* frameWidth * 4 + (x) * 4;
+						int pxidx_next = (y)* frameWidth * 4 + (x + 1) * 4;
+						if ((UINT8)interp_pixels4[pxidx_next + 3] != 255) {
+							interp_pixels4[pxidx_next] = (UINT8)interp_pixels4[pxidx];
+							interp_pixels4[pxidx_next + 1] = (UINT8)interp_pixels4[pxidx + 1];
+							interp_pixels4[pxidx_next + 2] = (UINT8)interp_pixels4[pxidx + 2];
+							interp_pixels4[pxidx_next + 3] = 255;
+						}
+					}
+				}*/
+
 				ID2D1Bitmap* pBitmap = NULL;
-				hr = pRenderTarget->CreateBitmap(D2D1::SizeU(frameWidth, frameHeight), interp_pixels2, frameWidth * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_R8G8B8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &pBitmap);
+				hr = pRenderTarget->CreateBitmap(D2D1::SizeU(frameWidth, frameHeight), interp_pixels2, frameWidth * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &pBitmap);
 
 				// Draw a bitmap.
 				pRenderTarget->DrawBitmap(
@@ -545,25 +707,8 @@ void MainWindow::OnPaint()
 					D2D1::RectF(
 						0,
 						0,
-						frameWidth * 0.8,
-						frameHeight * 0.8
-					),
-					1.0
-				);
-
-				SafeRelease(&pBitmap);
-
-				pBitmap = NULL;
-				hr = pRenderTarget->CreateBitmap(D2D1::SizeU(frameWidth, frameHeight), interp_pixels3, frameWidth * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_R8G8B8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &pBitmap);
-
-				// Draw a bitmap.
-				pRenderTarget->DrawBitmap(
-					pBitmap,
-					D2D1::RectF(
-						0,
-						frameHeight * 0.8,
-						frameWidth * 0.8,
-						frameHeight * 2 * 0.8
+						frameWidth,
+						frameHeight
 					),
 					1.0
 				);
@@ -571,13 +716,13 @@ void MainWindow::OnPaint()
 				SafeRelease(&pBitmap);
 
 				hr = pRenderTarget->EndDraw();
+				prevFrame = interp_pixels2;
 			}
 
+			delete[] interp_pixels5;
+			delete[] interp_pixels4;
 			delete[] interp_pixels;
 			delete[] interp_pixels2;
-			delete[] interp_pixels3;
-
-			//break;
 		}
 
 		string s1 = "bytecount: " + to_string(bytecount) + "\n";
