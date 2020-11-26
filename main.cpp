@@ -11,6 +11,7 @@
 #include <set>
 #include <cctype>
 #include "IntPoint.h"
+#include "Point.h"
 //#include "simplify.h"
 //#include "jSignature.h"
 #include "comdef.h"
@@ -229,6 +230,14 @@ struct rgb {
 	rgb(int r, int g, int b) : r(r), g(g), b(b) {};
 };
 
+struct rgba {
+	int r;
+	int g;
+	int b;
+	int a;
+	rgba(int r, int g, int b, int a) : r(r), g(g), b(b), a(a) {};
+};
+
 double rgb2lrgb(double x) {
 	return (x /= 255) <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4);
 }
@@ -348,6 +357,157 @@ bool similarColor2(char* imd, int x, int y, rgb color) {
 	return (UINT8)imd[curpx + 3] == 255;// && !noticeablyDifferent(rgb((UINT8)imd[curpx], (UINT8)imd[curpx + 1], (UINT8)imd[curpx + 2]), color);
 }
 
+bool sameColor(rgba px1, rgba px2) {
+	return (UINT8)px1.r == (UINT8)px2.r &&
+		   (UINT8)px1.g == (UINT8)px2.g &&
+		   (UINT8)px1.b == (UINT8)px2.b &&
+		   (UINT8)px1.a == (UINT8)px2.a;
+}
+
+rgba getPixelColor(char* imd, int x, int y) {
+	return rgba(
+		(UINT8)imd[y * 980 * 4 + x * 4],
+		(UINT8)imd[y * 980 * 4 + x * 4 + 1],
+		(UINT8)imd[y * 980 * 4 + x * 4 + 2],
+		(UINT8)imd[y * 980 * 4 + x * 4 + 3]
+	);
+}
+
+vector<IntPoint> checkAbove(char* imd, int x, int y, rgba targetColor) {
+	vector<IntPoint> retval;
+	if (!sameColor(getPixelColor(imd, x - 1, y), targetColor)) {
+		retval.push_back(IntPoint(x - 1, y));
+	}
+	if (!sameColor(getPixelColor(imd, x, y), targetColor)) {
+		retval.push_back(IntPoint(x, y));
+	}
+	if (!sameColor(getPixelColor(imd, x + 1, y), targetColor)) {
+		retval.push_back(IntPoint(x + 1, y));
+	}
+	return retval;
+}
+
+struct scanLineRetval {
+	int minX;
+	int maxX;
+	vector<IntPoint> _abv;
+	vector<IntPoint> _blw;
+};
+
+scanLineRetval scanLine(char* imd, int px, int py, rgba targetColor, bool _not) {
+	int x = px;
+	int y = py;
+	int minX;
+	int maxX;
+	bool eq;
+	vector<IntPoint> _abv;
+	vector<IntPoint> _blw;
+
+	eq = sameColor(getPixelColor(imd, x, y), targetColor);
+	while (x > 0 && (_not ? !eq : eq)) {
+		if (_not) {
+			vector<IntPoint> abv = checkAbove(imd, x, y - 1, targetColor);
+			if (abv.size()) {
+				for (int i = 0, len = abv.size(); i < len; i++) {
+					_abv.push_back(abv[i]);
+				}
+			}
+			vector<IntPoint> blw = checkAbove(imd, x, y + 1, targetColor);
+			if (blw.size()) {
+				for (int i = 0, len = blw.size(); i < len; i++) {
+					_blw.push_back(blw[i]);
+				}
+			}
+		}
+		x--;
+		rgba color = getPixelColor(imd, x, y);
+		eq = sameColor(getPixelColor(imd, x, y), targetColor);
+	}
+	minX = x + 1;
+
+	x = px + 1;
+
+	eq = sameColor(getPixelColor(imd, x, y), targetColor);
+	while (x < 980 && (_not ? !eq : eq)) {
+		if (_not) {
+			vector<IntPoint> abv = checkAbove(imd, x, y - 1, targetColor);
+			if (abv.size()) {
+				for (int i = 0, len = abv.size(); i < len; i++) {
+					_abv.push_back(abv[i]);
+				}
+			}
+			vector<IntPoint> blw = checkAbove(imd, x, y + 1, targetColor);
+			if (blw.size()) {
+				for (int i = 0, len = blw.size(); i < len; i++) {
+					_blw.push_back(blw[i]);
+				}
+			}
+		}
+		x++;
+		eq = sameColor(getPixelColor(imd, x, y), targetColor);
+	}
+	maxX = x - 1;
+
+	scanLineRetval retval;
+	retval.minX = minX;
+	retval.maxX = maxX;
+	retval._abv = _abv;
+	retval._blw = _blw;
+
+	return retval;
+}
+
+map<int, map<int, bool>> floodFillMat;
+vector<IntPoint> floodFillKnots;
+
+bool sortAB(IntPoint a, IntPoint b) { return a.x - b.x; }
+bool sortBA(IntPoint a, IntPoint b) { return b.x - a.x; }
+
+void floodFill(char *imd, int px, int py, rgba targetColor, rgba fillColor, string dir) {
+	if (floodFillMat.find(py) != floodFillMat.end() && floodFillMat[py].find(px) != floodFillMat[py].end()) {
+		return;
+	}
+	if (px <= 0 || py <= 0 || px >= 980 || py >= 420 || sameColor(getPixelColor(imd, px, py), fillColor)) {
+		return;
+	}
+
+	int y = py;
+
+	scanLineRetval r = scanLine(imd, px, py, targetColor, true);
+	int minX = r.minX;
+	int maxX = r.maxX;
+
+	vector<IntPoint> newKnots;
+	for (int i = minX; i <= maxX; i++) {
+		if (floodFillMat.find(y) == floodFillMat.end()) {
+			floodFillMat[y] = {};
+		}
+		floodFillMat[y][i] = true;
+		newKnots.push_back(IntPoint(i, y));
+	}
+	if (abs(px - minX) > abs(px - maxX)) {
+		std::reverse(newKnots.begin(), newKnots.end());
+	}
+	for (int i = 0, len = newKnots.size(); i < len; i++) {
+		floodFillKnots.push_back(newKnots[i]);
+	}
+	if ((r._abv.size() + r._blw.size()) > 2) {
+		fillColor = rgba((UINT8)0, (UINT8)255, (UINT8)0, (UINT8)255);
+	}
+	if (r._abv.size()) {
+		sort(r._abv.begin(), r._abv.end(), sortAB);
+		for (int i = 0, len = r._abv.size(); i < len; i++) {
+			floodFill(imd, r._abv[i].x, y - 1, targetColor, fillColor, "UP");
+		}
+	}
+	if (r._blw.size()) {
+		sort(r._blw.begin(), r._blw.end(), sortBA);
+		for (int i = 0, len = r._blw.size(); i < len; i++) {
+			floodFill(imd, r._blw[i].x, y + 1, targetColor, fillColor, "DOWN");
+		}
+	}
+}
+
 void MainWindow::OnPaint()
 {
 	using namespace std::this_thread; // sleep_for, sleep_until
@@ -371,8 +531,8 @@ void MainWindow::OnPaint()
 		std::ofstream myfile;
 		myfile.open("chroma.txt", std::ios_base::binary | std::ios_base::out);
 
-		int realFrameCount = 3288;// mov.get(cv::CAP_PROP_FRAME_COUNT);
-		int frameDiff = realFrameCount - mov.get(cv::CAP_PROP_POS_FRAMES);
+		int realFrameCount = mov.get(cv::CAP_PROP_FRAME_COUNT);
+		int frameDiff = 1;// realFrameCount - mov.get(cv::CAP_PROP_POS_FRAMES);
 		myfile << (char)(UINT8)(frameDiff >> 8 & 0xFF);
 		myfile << (char)(UINT8)(frameDiff & 0xFF);
 
@@ -401,7 +561,7 @@ void MainWindow::OnPaint()
 			}
 
 			char* curFrame = new char[frameWidth * frameHeight * 4];
-			char* interp_pixels4 = new char[frameWidth * frameHeight * 4];
+			char* interp_pixels4 = new char[(frameWidth+20) * (frameHeight+20) * 4];
 			char* interp_pixels5 = new char[frameWidth * frameHeight * 4];
 
 			mov >> src;
@@ -428,32 +588,11 @@ void MainWindow::OnPaint()
 						curFrame[idx + 1] = src.at<Pixel>(y, x).y;
 						curFrame[idx + 2] = src.at<Pixel>(y, x).x;
 						curFrame[idx + 3] = 255;
-						//}
 
 						x++;
 					}
 				}
 			}
-
-			//cvtColor(src, src_gray, cv::COLOR_BGR2GRAY);
-			//blur(src_gray, src_gray, Size(3, 3));
-
-			/// Detect edges using canny
-			//Canny(src_gray, canny_output, 100, 100 * 2, 3);
-			/// Find contours
-			//findContours(canny_output, contours, hierarchy, cv::RETR_LIST, cv::CHAIN_APPROX_NONE, Point(0, 0));
-
-			/*string s1 = "contour count: " + to_string(contours.size()) + "\n";
-			std::wstring widestr = std::wstring(s1.begin(), s1.end());
-			OutputDebugStringW(widestr.c_str());
-
-			for (int i = 0, len = contours.size(); i < len; i++) {
-				for (int j = 1, jLen = contours[i].size(); j < jLen; j++) {
-					string s1 = "(" + to_string(contours[i][j].x - contours[i][j-1].x) + ", " + to_string(contours[i][j].y - contours[i][j-1].y) + ")\n";
-					std::wstring widestr = std::wstring(s1.begin(), s1.end());
-					OutputDebugStringW(widestr.c_str());
-				}
-			}*/
 
 			frameEdgeBytes.push_back(curByteIdx - prevByteIdx);
 			frameEdgeBits.push_back(curBitIdx);
@@ -474,6 +613,7 @@ void MainWindow::OnPaint()
 			map<int, vector<IntPoint>> clrmap;
 			map<int, int> totalPixelCountPerColor;
 			vector<IntPoint> startPoints;
+			map<int, vector<IntPoint>> startKnotsByColor;
 
 			{
 				typedef cv::Point3_<uint8_t> Pixel;
@@ -554,6 +694,12 @@ void MainWindow::OnPaint()
 								interp_pixels2[pxidx + 3] = (UINT8)255;
 							}
 						}
+						/*curpx = (y)* frameWidth * 4 + (x + 1) * 4;
+						int color_value = (UINT8)interp_pixels[curpx] << 16 | (UINT8)interp_pixels[curpx+1] << 8 | (UINT8)interp_pixels[curpx+2];
+						if (startKnotsByColor.find(color_value) == startKnotsByColor.end()) {
+							startKnotsByColor[color_value] = {};
+						}
+						startKnotsByColor[color_value].push_back(IntPoint(x + 1, y));*/
 					}
 				}
 
@@ -579,12 +725,12 @@ void MainWindow::OnPaint()
 						else {
 							clrmap[color_value].push_back(IntPoint(x, y));
 						}
-						/*if (totalPixelCountPerColor.find(color_value) == totalPixelCountPerColor.end()) {
+						if (totalPixelCountPerColor.find(color_value) == totalPixelCountPerColor.end()) {
 							totalPixelCountPerColor[color_value] = 1;
 						}
 						else {
 							totalPixelCountPerColor[color_value]++;
-						}*/
+						}
 					}
 				}
 			}
@@ -596,7 +742,7 @@ void MainWindow::OnPaint()
 
 				for (auto it = clrmap.begin(); it != clrmap.end(); it++)
 				{
-					if (totalPixelCountPerColor[it->first] >= 16) {
+					if (totalPixelCountPerColor[it->first] >= 1) {
 						colorCount++;
 					}
 				}
@@ -611,95 +757,100 @@ void MainWindow::OnPaint()
 					int red = clr >> 16 & 0xFF;
 					int green = clr >> 8 & 0xFF;
 					int blue = clr & 0xFF;
-					if (true) {//totalPixelCountPerColor[clr] >= 1) {
+					if (totalPixelCountPerColor[clr] >= 1) {
 						bytecount += 3;
-						/*Mat canny_output = Mat::zeros(frameHeight, frameWidth, CV_8UC1);
-						vector<vector<Point> > contours;
-						vector<Vec4i> hierarchy;
+
+						for (int i = 0, len = (frameWidth + 20) * (frameHeight + 20) * 4; i < len; i++) {
+							interp_pixels4[i] = (UINT8)255;
+						}
 						for (auto pt : it->second)
 						{
-							canny_output.at<UINT8>(pt.y, pt.x) = 255;
+							interp_pixels4[(pt.y+10) * 980 * 4 + (pt.x+10) * 4] = (UINT8)0;
+							interp_pixels4[(pt.y+10) * 980 * 4 + (pt.x+10) * 4 + 1] = (UINT8)0;
+							interp_pixels4[(pt.y+10) * 980 * 4 + (pt.x+10) * 4 + 2] = (UINT8)0;
+							interp_pixels4[(pt.y+10) * 980 * 4 + (pt.x+10) * 4 + 3] = (UINT8)255;
 						}
-						findContours(canny_output, contours, hierarchy, cv::RETR_LIST, cv::CHAIN_APPROX_NONE, Point(0, 0));
+
+						floodFillMat.clear();
+						floodFillKnots.clear();
+
+						floodFill(interp_pixels4, it->second[0].x + 10, it->second[0].y + 10, rgba((UINT8)255, (UINT8)255, (UINT8)255, (UINT8)255), rgba((UINT8)255, (UINT8)0, (UINT8)0, (UINT8)255), "");
+
+						/*for (int i = 0, len = floodFillKnots.size(); i < len; i++) {
+							IntPoint k = floodFillKnots[i];
+							floodFillKnots[i].x -= 10;
+							floodFillKnots[i].y -= 10;
+						}
+
+						//findContours(canny_output, contours, hierarchy, cv::RETR_LIST, cv::CHAIN_APPROX_NONE, Point(0, 0));
 						bytecount += 2.0;
-						int contourCount = contours.size();
-						*/string bits = bitify((UINT8)red) + bitify((UINT8)green) + bitify((UINT8)blue);
+						int contourCount = floodFillKnots.size();
+
+						string s1 = "contourCount: " + to_string(contourCount) + "\n";
+						std::wstring widestr = std::wstring(s1.begin(), s1.end());
+						OutputDebugStringW(widestr.c_str());
+
+						string bits = bitify((UINT8)red) + bitify((UINT8)green) + bitify((UINT8)blue);
 						for (auto bit : bits) {
 							addBit(bit == '1');
 						}
-						/*bits = bitify(contourCount >> 8) + bitify(contourCount & 0xFF);
+						bits = bitify(contourCount >> 8) + bitify(contourCount & 0xFF);
 						for (auto bit : bits) {
 							addBit(bit == '1');
 						}
-						for (int i = 0, len = contours.size(); i < len; i++) {
-							IntPoint firstPoint(contours[i][0].x, contours[i][0].y);
-							bytecount += 6.0;
-							string bits = bitify(firstPoint.x >> 8) + bitify(firstPoint.x & 0xFF) + bitify(firstPoint.y >> 8) + bitify(firstPoint.y & 0xFF);
-							for (auto bit : bits) {
-								addBit(bit == '1');
-							}
-							int innerContourSize = contours[i].size();
+						IntPoint firstPoint(it->second[0].x + 10, it->second[0].y + 10);
+						bytecount += 6.0;
+						bits = bitify(firstPoint.x >> 8) + bitify(firstPoint.x & 0xFF) + bitify(firstPoint.y >> 8) + bitify(firstPoint.y & 0xFF);
+						for (auto bit : bits) {
+							addBit(bit == '1');
+						}
+						//for (int i = 0, len = floodFillKnots.size(); i < len; i++) {
+							int innerContourSize = floodFillKnots.size();
 							bits = bitify(innerContourSize >> 8) + bitify(innerContourSize & 0xFF);
 							for (auto bit : bits) {
 								addBit(bit == '1');
 							}
-							Point lastDiff;
-							int idx = contours[i][0].y * frameWidth * 4 + contours[i][0].x * 4;
-							interp_pixels4[idx + 2] = (UINT8)red;
-							interp_pixels4[idx + 1] = (UINT8)green;
-							interp_pixels4[idx] = (UINT8)blue;
-							interp_pixels4[idx + 3] = (UINT8)255;
-							for (int j = 1, jLen = contours[i].size(); j < jLen; j++) {
-								int idx = contours[i][j].y * frameWidth * 4 + contours[i][j].x * 4;
-								interp_pixels4[idx + 2] = (UINT8)red;
-								interp_pixels4[idx + 1] = (UINT8)green;
-								interp_pixels4[idx] = (UINT8)blue;
-								interp_pixels4[idx + 3] = (UINT8)255;
-								IntPoint newDiff(contours[i][j].x - contours[i][j - 1].x, contours[i][j].y - contours[i][j - 1].y);
-								if (newDiff.x == lastDiff.x && newDiff.y == lastDiff.y) {
-									addBit(0);
-									bytecount += 0.125;
-								}
-								else if (contours[i][j].x - contours[i][j - 1].x >= -1 && contours[i][j].x - contours[i][j - 1].x <= 1 && contours[i][j].y - contours[i][j - 1].y >= -1 && contours[i][j].y - contours[i][j - 1].y <= 1) {
-									addBit(1);
-									addShortDelta(newDiff);
-									bytecount += 0.125 + 0.5;
-								}
-								lastDiff.x = contours[i][j].x - contours[i][j - 1].x;
-								lastDiff.y = contours[i][j].y - contours[i][j - 1].y;
+						IntPoint lastDiff(0, 0);
+						int idx = it->second[0].y * frameWidth * 4 + it->second[0].x * 4;
+						interp_pixels5[idx + 2] = (UINT8)red;
+						interp_pixels5[idx + 1] = (UINT8)green;
+						interp_pixels5[idx] = (UINT8)blue;
+						interp_pixels5[idx + 3] = (UINT8)255;
+						for (int j = 0, jLen = floodFillKnots.size(); j < jLen; j++) {
+							int idx = floodFillKnots[j].y * frameWidth * 4 + floodFillKnots[j].x * 4;
+							interp_pixels5[idx + 2] = (UINT8)red;
+							interp_pixels5[idx + 1] = (UINT8)green;
+							interp_pixels5[idx] = (UINT8)blue;
+							interp_pixels5[idx + 3] = (UINT8)255;
+							IntPoint newDiff(floodFillKnots[j].x - floodFillKnots[j - 1].x, floodFillKnots[j].y - floodFillKnots[j - 1].y);
+							if (newDiff.x == lastDiff.x && newDiff.y == lastDiff.y) {
+								addBit(0);
+								bytecount += 0.125;
 							}
-						}
+							else if (floodFillKnots[j].x - floodFillKnots[j - 1].x >= -1 && floodFillKnots[j].x - floodFillKnots[j - 1].x <= 1 && floodFillKnots[j].y - floodFillKnots[j - 1].y >= -1 && floodFillKnots[j].y - floodFillKnots[j - 1].y <= 1) {
+								addBit(1);
+								addShortDelta(newDiff);
+								bytecount += 0.125 + 0.5;
+							}
+							lastDiff.x = floodFillKnots[j].x - floodFillKnots[j - 1].x;
+							lastDiff.y = floodFillKnots[j].y - floodFillKnots[j - 1].y;
+						}*/
+						//}
 						for (auto pt : it->second)
 						{
 							int idx = pt.y * frameWidth * 4 + pt.x * 4;
-							interp_pixels4[idx + 2] = (UINT8)red;
-							interp_pixels4[idx + 1] = (UINT8)green;
-							interp_pixels4[idx] = (UINT8)blue;
-							interp_pixels4[idx + 3] = (UINT8)255;
+							interp_pixels5[idx + 2] = (UINT8)red;
+							interp_pixels5[idx + 1] = (UINT8)green;
+							interp_pixels5[idx] = (UINT8)blue;
+							interp_pixels5[idx + 3] = (UINT8)255;
 							//startPoints.push_back(IntPoint(pt.x, pt.y));
 							bytecount += 0.5;
-						}*/
-					}
-				}
-				/*string s1 = "Total contour count: " + to_string(contourCount) + ")\n";
-				std::wstring widestr = std::wstring(s1.begin(), s1.end());
-				OutputDebugStringW(widestr.c_str());*/
-
-				/*for (y = 0, rows = frameHeight; y < rows; y += 1) {
-					for (x = 0, cols = frameWidth - 1; x < cols; x += 1) {
-						int pxidx = (y)* frameWidth * 4 + (x) * 4;
-						int pxidx_next = (y)* frameWidth * 4 + (x + 1) * 4;
-						if ((UINT8)interp_pixels4[pxidx_next + 3] != 255) {
-							interp_pixels4[pxidx_next] = (UINT8)interp_pixels4[pxidx];
-							interp_pixels4[pxidx_next + 1] = (UINT8)interp_pixels4[pxidx + 1];
-							interp_pixels4[pxidx_next + 2] = (UINT8)interp_pixels4[pxidx + 2];
-							interp_pixels4[pxidx_next + 3] = 255;
 						}
 					}
-				}*/
+				}
 
 				ID2D1Bitmap* pBitmap = NULL;
-				hr = pRenderTarget->CreateBitmap(D2D1::SizeU(frameWidth, frameHeight), interp_pixels2, frameWidth * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &pBitmap);
+				hr = pRenderTarget->CreateBitmap(D2D1::SizeU(frameWidth, frameHeight), interp_pixels5, frameWidth * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &pBitmap);
 
 				// Draw a bitmap.
 				pRenderTarget->DrawBitmap(
@@ -723,10 +874,15 @@ void MainWindow::OnPaint()
 			delete[] interp_pixels4;
 			delete[] interp_pixels;
 			delete[] interp_pixels2;
+			break;
 		}
 
 		string s1 = "bytecount: " + to_string(bytecount) + "\n";
 		std::wstring widestr = std::wstring(s1.begin(), s1.end());
+		OutputDebugStringW(widestr.c_str());
+
+		s1 = "frameEdgeBytes.size(): " + to_string(frameEdgeBytes.size()) + "\n";
+		widestr = std::wstring(s1.begin(), s1.end());
 		OutputDebugStringW(widestr.c_str());
 
 		for (int i = 0, len = frameEdgeBytes.size(); i < len; i++) {
