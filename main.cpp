@@ -10,6 +10,9 @@
 #include <queue>
 #include <set>
 #include <cctype>
+#include <functional>
+#include "jSignature.h"
+#include "simplify.h"
 #include "IntPoint.h"
 #include "Point.h"
 //#include "simplify.h"
@@ -48,6 +51,14 @@ int maxX;
 int py;
 map<int, map<int, bool>> visited;
 bool layoutDone = false;
+
+static void CannyThreshold(int, void*)
+{
+	blur(src_gray, detected_edges, Size(3, 3));
+	Canny(detected_edges, detected_edges, lowThreshold, lowThreshold * ratio, kernel_size);
+	dst = Scalar::all(0);
+	src.copyTo(dst, detected_edges);
+}
 
 int frameWidth = 960;
 int frameHeight = 400;
@@ -110,20 +121,51 @@ string lastChars(string str, int count) {
 	return str.substr(str.size() - count, std::string::npos);
 }
 
-void addShortDelta(IntPoint delta) {
-	if (delta.x >= -1 && delta.x <= 1 && delta.y >= -1 && delta.y <= 1) {
-		if (delta.x == -1) { addBit(0); addBit(0); }
-		else if (delta.x == 0) { addBit(0); addBit(1); }
-		else if (delta.x == 1) { addBit(1); addBit(0); }
-		if (delta.y == -1) { addBit(0); addBit(0); }
-		else if (delta.y == 0) { addBit(0); addBit(1); }
-		else if (delta.y == 1) { addBit(1); addBit(0); }
-	}
-}
-
 void addDelta(IntPoint delta) {
 	if (delta.x >= -1 && delta.x <= 1 && delta.y >= -1 && delta.y <= 1) {
 		addBit(0);
+		
+		/*if (delta.x == -1 && delta.y == -1) {
+			addBit(0);
+			addBit(0);
+			addBit(0);
+		}
+		else if (delta.x == -1 && delta.y == 0) {
+			addBit(0);
+			addBit(0);
+			addBit(1);
+		}
+		else if (delta.x == -1 && delta.y == 1) {
+			addBit(0);
+			addBit(1);
+			addBit(0);
+		}
+		else if (delta.x == 0 && delta.y == -1) {
+			addBit(0);
+			addBit(1);
+			addBit(1);
+		}
+		else if (delta.x == 0 && delta.y == 1) {
+			addBit(1);
+			addBit(0);
+			addBit(0);
+		}
+		else if (delta.x == 1 && delta.y == -1) {
+			addBit(1);
+			addBit(0);
+			addBit(1);
+		}
+		else if (delta.x == 1 && delta.y == 0) {
+			addBit(1);
+			addBit(1);
+			addBit(0);
+		}
+		else if (delta.x == 1 && delta.y == 1) {
+			addBit(1);
+			addBit(1);
+			addBit(1);
+		}*/
+
 		if (delta.x == -1) { addBit(0); addBit(0); }
 		else if (delta.x == 0) { addBit(0); addBit(1); }
 		else if (delta.x == 1) { addBit(1); addBit(0); }
@@ -140,6 +182,10 @@ void addDelta(IntPoint delta) {
 			addBit(bit == '1');
 		}
 	}
+}
+
+void addShortDelta(IntPoint delta) {
+	addDelta(delta);
 }
 
 vector<vector<IntPoint>> izePoints;
@@ -460,8 +506,12 @@ scanLineRetval scanLine(char* imd, int px, int py, rgba targetColor, bool _not) 
 map<int, map<int, bool>> floodFillMat;
 vector<IntPoint> floodFillKnots;
 
-bool sortAB(IntPoint a, IntPoint b) { return a.x - b.x; }
-bool sortBA(IntPoint a, IntPoint b) { return b.x - a.x; }
+bool sortAB(IntPoint a, IntPoint b) { return a.x < b.x; }
+bool sortBA(IntPoint a, IntPoint b) { return b.x < a.x; }
+
+int sqDist(IntPoint point1, IntPoint point2) {
+	return (point1.x - point2.x) * (point1.x - point2.x) + (point1.y - point2.y) * (point1.y - point2.y);
+}
 
 void floodFill(char *imd, int px, int py, rgba targetColor, rgba fillColor, string dir) {
 	if (floodFillMat.find(py) != floodFillMat.end() && floodFillMat[py].find(px) != floodFillMat[py].end()) {
@@ -476,6 +526,11 @@ void floodFill(char *imd, int px, int py, rgba targetColor, rgba fillColor, stri
 	scanLineRetval r = scanLine(imd, px, py, targetColor, true);
 	int minX = r.minX;
 	int maxX = r.maxX;
+
+	imd[py * 980 * 4 + px * 4] = 255;
+	imd[py * 980 * 4 + px * 4 + 1] = 255;
+	imd[py * 980 * 4 + px * 4 + 2] = 255;
+	imd[py * 980 * 4 + px * 4 + 3] = 255;
 
 	vector<IntPoint> newKnots;
 	for (int i = minX; i <= maxX; i++) {
@@ -508,8 +563,15 @@ void floodFill(char *imd, int px, int py, rgba targetColor, rgba fillColor, stri
 	}
 }
 
+auto sortClosest(IntPoint &sortComp, vector<IntPoint> &a, vector<IntPoint> &b) {
+	int lhs = min(sqDist(a[0], sortComp), sqDist(a[a.size() - 1], sortComp));
+	int rhs = min(sqDist(b[0], sortComp), sqDist(b[b.size() - 1], sortComp));
+	return std::tie(lhs) < std::tie(rhs);
+};
+
 void MainWindow::OnPaint()
 {
+	using namespace std::placeholders;
 	using namespace std::this_thread; // sleep_for, sleep_until
 	using namespace std::chrono; // nanoseconds, system_clock, seconds
 	HRESULT hr = CreateGraphicsResources();
@@ -531,8 +593,8 @@ void MainWindow::OnPaint()
 		std::ofstream myfile;
 		myfile.open("chroma.txt", std::ios_base::binary | std::ios_base::out);
 
-		int realFrameCount = mov.get(cv::CAP_PROP_FRAME_COUNT);
-		int frameDiff = 1;// realFrameCount - mov.get(cv::CAP_PROP_POS_FRAMES);
+		int realFrameCount = 3288;// mov.get(cv::CAP_PROP_FRAME_COUNT);
+		int frameDiff = realFrameCount - frameIndex;//mov.get(cv::CAP_PROP_POS_FRAMES);
 		myfile << (char)(UINT8)(frameDiff >> 8 & 0xFF);
 		myfile << (char)(UINT8)(frameDiff & 0xFF);
 
@@ -735,6 +797,36 @@ void MainWindow::OnPaint()
 				}
 			}
 
+			/*dst.create(src.size(), src.type());
+			cvtColor(src, src_gray, COLOR_BGR2GRAY);
+			CannyThreshold(0, 0);*/
+
+			for (int i = 0, len = (frameWidth + 20) * (frameHeight + 20) * 4; i < len; i++) {
+				interp_pixels4[i] = (UINT8)255;
+			}
+
+			typedef cv::Point3_<uint8_t> Pixel;
+
+			/*int canny_rows = dst.rows;
+			int canny_cols = dst.cols;
+			int x = 0;
+			int y = 0;
+			for (Pixel& p : cv::Mat_<Pixel>(dst)) {
+				if (x == canny_cols)
+				{
+					x = 0;
+					y++;
+				}
+				if (p.x != (UINT8)0 || p.y != (UINT8)0 || p.z != (UINT8)0)
+				{
+					interp_pixels4[(y + 10) * 980 * 4 + (x + 10) * 4] = (UINT8)0;
+					interp_pixels4[(y + 10) * 980 * 4 + (x + 10) * 4 + 1] = (UINT8)0;
+					interp_pixels4[(y + 10) * 980 * 4 + (x + 10) * 4 + 2] = (UINT8)0;
+					interp_pixels4[(y + 10) * 980 * 4 + (x + 10) * 4 + 3] = (UINT8)255;
+				}
+				x++;
+			}*/
+
 			if (true || i == 1) {
 				int contourCount = 0;
 				bytecount += 2.0;
@@ -742,115 +834,395 @@ void MainWindow::OnPaint()
 
 				for (auto it = clrmap.begin(); it != clrmap.end(); it++)
 				{
-					if (totalPixelCountPerColor[it->first] >= 1) {
+					if (totalPixelCountPerColor[it->first] >= 16) {
 						colorCount++;
 					}
+				}
+
+				{
+					string s1 = "colorCount: " + to_string(colorCount) + "\n";
+					std::wstring widestr = std::wstring(s1.begin(), s1.end());
+					OutputDebugStringW(widestr.c_str());
 				}
 
 				string bits = bitify(colorCount >> 8) + bitify(colorCount & 0xFF);
 				for (auto bit : bits) {
 					addBit(bit == '1');
 				}
+
 				for (auto it = clrmap.begin(); it != clrmap.end(); it++)
 				{
 					int clr = it->first;
 					int red = clr >> 16 & 0xFF;
 					int green = clr >> 8 & 0xFF;
 					int blue = clr & 0xFF;
-					if (totalPixelCountPerColor[clr] >= 1) {
+					if (totalPixelCountPerColor[clr] >= 16) {
 						bytecount += 3;
 
-						for (int i = 0, len = (frameWidth + 20) * (frameHeight + 20) * 4; i < len; i++) {
-							interp_pixels4[i] = (UINT8)255;
-						}
 						for (auto pt : it->second)
 						{
-							interp_pixels4[(pt.y+10) * 980 * 4 + (pt.x+10) * 4] = (UINT8)0;
-							interp_pixels4[(pt.y+10) * 980 * 4 + (pt.x+10) * 4 + 1] = (UINT8)0;
-							interp_pixels4[(pt.y+10) * 980 * 4 + (pt.x+10) * 4 + 2] = (UINT8)0;
-							interp_pixels4[(pt.y+10) * 980 * 4 + (pt.x+10) * 4 + 3] = (UINT8)255;
+							interp_pixels4[(pt.y + 10) * 980 * 4 + (pt.x + 10) * 4] = (UINT8)0;
+							interp_pixels4[(pt.y + 10) * 980 * 4 + (pt.x + 10) * 4 + 1] = (UINT8)0;
+							interp_pixels4[(pt.y + 10) * 980 * 4 + (pt.x + 10) * 4 + 2] = (UINT8)0;
+							interp_pixels4[(pt.y + 10) * 980 * 4 + (pt.x + 10) * 4 + 3] = (UINT8)255;
 						}
 
+						vector<vector<IntPoint>> izePoints = {};
 						floodFillMat.clear();
 						floodFillKnots.clear();
 
-						floodFill(interp_pixels4, it->second[0].x + 10, it->second[0].y + 10, rgba((UINT8)255, (UINT8)255, (UINT8)255, (UINT8)255), rgba((UINT8)255, (UINT8)0, (UINT8)0, (UINT8)255), "");
-
-						/*for (int i = 0, len = floodFillKnots.size(); i < len; i++) {
-							IntPoint k = floodFillKnots[i];
-							floodFillKnots[i].x -= 10;
-							floodFillKnots[i].y -= 10;
+						for (auto pt : it->second)
+						{
+							floodFill(interp_pixels4, pt.x + 10, pt.y + 10, rgba((UINT8)255, (UINT8)255, (UINT8)255, (UINT8)255), rgba((UINT8)255, (UINT8)0, (UINT8)0, (UINT8)255), "");
 						}
 
-						//findContours(canny_output, contours, hierarchy, cv::RETR_LIST, cv::CHAIN_APPROX_NONE, Point(0, 0));
-						bytecount += 2.0;
-						int contourCount = floodFillKnots.size();
+						vector<IntPoint> knots = floodFillKnots;
+						int knotCount = knots.size();
 
-						string s1 = "contourCount: " + to_string(contourCount) + "\n";
-						std::wstring widestr = std::wstring(s1.begin(), s1.end());
-						OutputDebugStringW(widestr.c_str());
+						if (knotCount == 0) {
+							continue;
+						}
+
+						vector<vector<IntPoint>> sets = {};
+						vector<IntPoint> curSet = {};
+						for (int idx = 0, len = knotCount; idx < len; idx++) {
+							IntPoint knot = knots[idx];
+							if (idx > 0 && idx <= knotCount - 1) {
+								if (sqDist(knots[idx - 1], knot) > 8) {
+									if (curSet.size()) {
+										sets.push_back(curSet);
+									}
+									curSet = { knot };
+								}
+								else {
+									curSet.push_back(knot);
+								}
+							}
+							else if (idx > 0) {
+								if (!(sqDist(knots[idx - 1], knot) <= 8)) {
+									if (curSet.size()) {
+										sets.push_back(curSet);
+									}
+									curSet = { knot };
+								}
+								else {
+									curSet.push_back(knot);
+								}
+							}
+							else if (knotCount == 1 || idx < knotCount - 1) {
+								if (!(sqDist(knots[idx + 1], knot) <= 8)) {
+									if (curSet.size()) {
+										sets.push_back(curSet);
+									}
+									curSet = { knot };
+								}
+								else {
+									curSet.push_back(knot);
+								}
+							}
+						}
+						if (curSet.size()) {
+							sets.push_back(curSet);
+						}
+
+						/*while (sets.size() > 1) {
+							int i = 0;
+
+							auto sortClosestToStart = std::bind(sortClosest, sets[i][0], _1, _2);
+							auto sortClosestToEnd = std::bind(sortClosest, sets[i][sets[i].size() - 1], _1, _2);
+
+							vector<vector<IntPoint>> sortedStart = sets;
+							sortedStart.erase(sortedStart.begin() + i);
+
+							vector<vector<IntPoint>> sortedEnd = sets;
+							sortedEnd.erase(sortedEnd.begin() + i);
+
+							std::sort(sortedStart.begin(), sortedStart.end(), sortClosestToStart);
+							std::sort(sortedEnd.begin(), sortedEnd.end(), sortClosestToEnd);
+
+							vector<IntPoint> closestToStart = sortedStart[0];
+							vector<IntPoint> closestToEnd = sortedEnd[0];
+
+							vector<IntPoint> newSet;
+							int startDist = min(sqDist(closestToStart[0], sets[i][0]), sqDist(closestToStart[closestToStart.size() - 1], sets[i][0]));
+							int endDist = min(sqDist(closestToEnd[0], sets[i][sets[i].size() - 1]), sqDist(closestToEnd[closestToEnd.size() - 1], sets[i][sets[i].size() - 1]));
+							if (startDist < endDist) { // closer to start
+								if (sqDist(closestToStart[0], sets[i][0]) < sqDist(closestToStart[closestToStart.size() - 1], sets[i][0])) {
+									std::reverse(closestToStart.begin(), closestToStart.end());
+								}
+								newSet.insert(newSet.end(), closestToStart.begin(), closestToStart.end());
+								newSet.insert(newSet.end(), sets[i].begin(), sets[i].end());
+								sets.erase(sets.begin() + i);
+								bool breakOut = false;
+								for (int i = 0, len = sets.size(); i < len; i++) {
+									if (sets[i].size() == closestToStart.size()) {
+										for (int j = 0, jLen = sets[i].size(); j < jLen; j++) {
+											sets.erase(sets.begin() + i);
+											breakOut = true;
+											break;
+										}
+										if (breakOut) {
+											break;
+										}
+									}
+								}
+							}
+							else { // closer to end
+								if (sqDist(closestToEnd[closestToEnd.size() - 1], sets[i][sets[i].size() - 1]) < sqDist(closestToEnd[0], sets[i][sets[i].size() - 1])) {
+									std::reverse(closestToEnd.begin(), closestToEnd.end());
+								}
+								newSet.insert(newSet.end(), sets[i].begin(), sets[i].end());
+								newSet.insert(newSet.end(), closestToEnd.begin(), closestToEnd.end());
+								sets.erase(sets.begin() + i);
+								bool breakOut = false;
+								for (int i = 0, len = sets.size(); i < len; i++) {
+									if (sets[i].size() == closestToEnd.size()) {
+										for (int j = 0, jLen = sets[i].size(); j < jLen; j++) {
+											sets.erase(sets.begin() + i);
+											breakOut = true;
+											break;
+										}
+										if (breakOut) {
+											break;
+										}
+									}
+								}
+							}
+							if (newSet.size()) {
+								sets.push_back(newSet);
+							}
+						}
+
+						if (sets.size()) {
+							knots = sets[0];
+							knotCount = knots.size();
+							sets = {};
+							curSet = {};
+							for (int idx = 0, len = knotCount; idx < len; idx++) {
+								IntPoint knot = knots[idx];
+								if (idx > 0 && idx < knotCount - 1) {
+									if (sqDist(knots[idx - 1], knot) > 8) {
+										if (curSet.size()) {
+											sets.push_back(curSet);
+										}
+										curSet = { knot };
+									}
+									else {
+										curSet.push_back(knot);
+									}
+								}
+								else if (idx > 0) {
+									if (!(sqDist(knots[idx - 1], knot) <= 8)) {
+										if (curSet.size()) {
+											sets.push_back(curSet);
+										}
+										curSet = { knot };
+									}
+									else {
+										curSet.push_back(knot);
+									}
+								}
+								else if (knotCount == 1 || idx < knotCount - 1) {
+									if (!(sqDist(knots[idx + 1], knot) <= 8)) {
+										if (curSet.size()) {
+											sets.push_back(curSet);
+										}
+										curSet = { knot };
+									}
+									else {
+										curSet.push_back(knot);
+									}
+								}
+							}
+							if (curSet.size()) {
+								sets.push_back(curSet);
+							}
+
+							while (sets.size() > 1) {
+								int i = 0;
+
+								auto sortClosestToStart = std::bind(sortClosest, sets[i][0], _1, _2);
+								auto sortClosestToEnd = std::bind(sortClosest, sets[i][sets[i].size() - 1], _1, _2);
+
+								vector<vector<IntPoint>> sortedStart = sets;
+								sortedStart.erase(sortedStart.begin() + i);
+
+								vector<vector<IntPoint>> sortedEnd = sets;
+								sortedEnd.erase(sortedEnd.begin() + i);
+
+								std::sort(sortedStart.begin(), sortedStart.end(), sortClosestToStart);
+								std::sort(sortedEnd.begin(), sortedEnd.end(), sortClosestToEnd);
+
+								vector<IntPoint> closestToStart = sortedStart[0];
+								vector<IntPoint> closestToEnd = sortedEnd[0];
+
+								vector<IntPoint> newSet;
+								int startDist = min(sqDist(closestToStart[0], sets[i][0]), sqDist(closestToStart[closestToStart.size() - 1], sets[i][0]));
+								int endDist = min(sqDist(closestToEnd[0], sets[i][sets[i].size() - 1]), sqDist(closestToEnd[closestToEnd.size() - 1], sets[i][sets[i].size() - 1]));
+								if (startDist < endDist) { // closer to start
+									if (sqDist(closestToStart[0], sets[i][0]) < sqDist(closestToStart[closestToStart.size() - 1], sets[i][0])) {
+										std::reverse(closestToStart.begin(), closestToStart.end());
+									}
+									newSet.insert(newSet.end(), closestToStart.begin(), closestToStart.end());
+									newSet.insert(newSet.end(), sets[i].begin(), sets[i].end());
+									sets.erase(sets.begin() + i);
+									bool breakOut = false;
+									for (int i = 0, len = sets.size(); i < len; i++) {
+										if (sets[i].size() == closestToStart.size()) {
+											for (int j = 0, jLen = sets[i].size(); j < jLen; j++) {
+												sets.erase(sets.begin() + i);
+												breakOut = true;
+												break;
+											}
+											if (breakOut) {
+												break;
+											}
+										}
+									}
+								}
+								else { // closer to end
+									if (sqDist(closestToEnd[closestToEnd.size() - 1], sets[i][sets[i].size() - 1]) < sqDist(closestToEnd[0], sets[i][sets[i].size() - 1])) {
+										std::reverse(closestToEnd.begin(), closestToEnd.end());
+									}
+									newSet.insert(newSet.end(), sets[i].begin(), sets[i].end());
+									newSet.insert(newSet.end(), closestToEnd.begin(), closestToEnd.end());
+									sets.erase(sets.begin() + i);
+									bool breakOut = false;
+									for (int i = 0, len = sets.size(); i < len; i++) {
+										if (sets[i].size() == closestToEnd.size()) {
+											for (int j = 0, jLen = sets[i].size(); j < jLen; j++) {
+												sets.erase(sets.begin() + i);
+												breakOut = true;
+												break;
+											}
+											if (breakOut) {
+												break;
+											}
+										}
+									}
+								}
+								if (newSet.size()) {
+									sets.push_back(newSet);
+								}
+							}
+						}*/
+						
+						for (int i = 0, len = sets.size(); i < len; i++) {
+							if (sets[i].size() == 0) {
+								continue;
+							}
+							izePoints.push_back({});
+							int izeIndex = izePoints.size() - 1;
+							for (int j = 0, jLen = sets[i].size(); j < jLen; j++) {
+								IntPoint k = sets[i][j];
+								sets[i][j].x -= 10;
+								sets[i][j].y -= 10;
+								izePoints[izeIndex].push_back(sets[i][j]);
+							}
+						}
+
+						auto contours = izePoints;
+
+						contourCount = contours.size();
+
+						if (contourCount == 0) {
+							addBit(0);
+							continue;
+						}
+						else {
+							addBit(1);
+						}
 
 						string bits = bitify((UINT8)red) + bitify((UINT8)green) + bitify((UINT8)blue);
 						for (auto bit : bits) {
 							addBit(bit == '1');
 						}
+
 						bits = bitify(contourCount >> 8) + bitify(contourCount & 0xFF);
 						for (auto bit : bits) {
 							addBit(bit == '1');
 						}
-						IntPoint firstPoint(it->second[0].x + 10, it->second[0].y + 10);
-						bytecount += 6.0;
-						bits = bitify(firstPoint.x >> 8) + bitify(firstPoint.x & 0xFF) + bitify(firstPoint.y >> 8) + bitify(firstPoint.y & 0xFF);
-						for (auto bit : bits) {
-							addBit(bit == '1');
-						}
-						//for (int i = 0, len = floodFillKnots.size(); i < len; i++) {
-							int innerContourSize = floodFillKnots.size();
+
+						for (int i = 0, len = contours.size(); i < len; i++) {
+							IntPoint firstPoint(contours[i][0].x, contours[i][0].y);
+							bytecount += 6.0;
+							string bits = bitify(firstPoint.x >> 8) + bitify(firstPoint.x & 0xFF) + bitify(firstPoint.y >> 8) + bitify(firstPoint.y & 0xFF);
+							for (auto bit : bits) {
+								addBit(bit == '1');
+							}
+							int innerContourSize = contours[i].size();
+
 							bits = bitify(innerContourSize >> 8) + bitify(innerContourSize & 0xFF);
 							for (auto bit : bits) {
 								addBit(bit == '1');
 							}
-						IntPoint lastDiff(0, 0);
-						int idx = it->second[0].y * frameWidth * 4 + it->second[0].x * 4;
-						interp_pixels5[idx + 2] = (UINT8)red;
-						interp_pixels5[idx + 1] = (UINT8)green;
-						interp_pixels5[idx] = (UINT8)blue;
-						interp_pixels5[idx + 3] = (UINT8)255;
-						for (int j = 0, jLen = floodFillKnots.size(); j < jLen; j++) {
-							int idx = floodFillKnots[j].y * frameWidth * 4 + floodFillKnots[j].x * 4;
+							IntPoint lastDiff(0, 0);
+							IntPoint curPoint(firstPoint.x, firstPoint.y);
+							int idx = contours[i][0].y * frameWidth * 4 + contours[i][0].x * 4;
 							interp_pixels5[idx + 2] = (UINT8)red;
 							interp_pixels5[idx + 1] = (UINT8)green;
 							interp_pixels5[idx] = (UINT8)blue;
 							interp_pixels5[idx + 3] = (UINT8)255;
-							IntPoint newDiff(floodFillKnots[j].x - floodFillKnots[j - 1].x, floodFillKnots[j].y - floodFillKnots[j - 1].y);
-							if (newDiff.x == lastDiff.x && newDiff.y == lastDiff.y) {
-								addBit(0);
-								bytecount += 0.125;
+							if (contours[i].size() == 1) {
+
 							}
-							else if (floodFillKnots[j].x - floodFillKnots[j - 1].x >= -1 && floodFillKnots[j].x - floodFillKnots[j - 1].x <= 1 && floodFillKnots[j].y - floodFillKnots[j - 1].y >= -1 && floodFillKnots[j].y - floodFillKnots[j - 1].y <= 1) {
-								addBit(1);
-								addShortDelta(newDiff);
-								bytecount += 0.125 + 0.5;
+							else {
+								IntPoint curDelta(0, 0);
+								for (int j = 1, jLen = contours[i].size(); j < jLen; j++) {
+									IntPoint newDiff(contours[i][j].x - contours[i][j - 1].x, contours[i][j].y - contours[i][j - 1].y);
+									if (newDiff.x == lastDiff.x && newDiff.y == lastDiff.y) {
+										addBit(0);
+										bytecount += 0.125;
+									}
+									else if (contours[i][j].x - contours[i][j - 1].x >= -1 && contours[i][j].x - contours[i][j - 1].x <= 1 && contours[i][j].y - contours[i][j - 1].y >= -1 && contours[i][j].y - contours[i][j - 1].y <= 1) {
+										addBit(1);
+										addDelta(newDiff);
+										curDelta.x = newDiff.x;
+										curDelta.y = newDiff.y;
+										bytecount += 0.125 + 0.5;
+									}
+									else {
+										addBit(1);
+										addDelta(newDiff);
+										curDelta.x = newDiff.x;
+										curDelta.y = newDiff.y;
+									}
+
+									curPoint.x += curDelta.x;
+									curPoint.y += curDelta.y;
+
+									lastDiff.x = contours[i][j].x - contours[i][j - 1].x;
+									lastDiff.y = contours[i][j].y - contours[i][j - 1].y;
+
+									int idx = curPoint.y * frameWidth * 4 + curPoint.x * 4;
+									interp_pixels5[idx + 2] = (UINT8)red;
+									interp_pixels5[idx + 1] = (UINT8)green;
+									interp_pixels5[idx] = (UINT8)blue;
+									interp_pixels5[idx + 3] = (UINT8)255;
+								}
 							}
-							lastDiff.x = floodFillKnots[j].x - floodFillKnots[j - 1].x;
-							lastDiff.y = floodFillKnots[j].y - floodFillKnots[j - 1].y;
-						}*/
-						//}
-						for (auto pt : it->second)
-						{
-							int idx = pt.y * frameWidth * 4 + pt.x * 4;
-							interp_pixels5[idx + 2] = (UINT8)red;
-							interp_pixels5[idx + 1] = (UINT8)green;
-							interp_pixels5[idx] = (UINT8)blue;
-							interp_pixels5[idx + 3] = (UINT8)255;
-							//startPoints.push_back(IntPoint(pt.x, pt.y));
-							bytecount += 0.5;
 						}
 					}
 				}
 
+				for (int y = 0, rows = 400; y < rows; y++) {
+					for (int x = 0, cols = 960 - 1; x < cols; x++) {
+						int idx = y * 960 * 4 + x * 4;
+						int idx_next = y * 960 * 4 + (x + 1) * 4;
+						if ((UINT8)interp_pixels5[idx_next + 3] != (UINT8)255) {
+							interp_pixels5[idx_next] = interp_pixels5[idx];
+							interp_pixels5[idx_next + 1] = interp_pixels5[idx + 1];
+							interp_pixels5[idx_next + 2] = interp_pixels5[idx + 2];
+							interp_pixels5[idx_next + 3] = (UINT8)255;
+						}
+					}
+				}
+
+				int bitmapWidth = frameWidth;
+				int bitmapHeight = frameHeight;
+
 				ID2D1Bitmap* pBitmap = NULL;
-				hr = pRenderTarget->CreateBitmap(D2D1::SizeU(frameWidth, frameHeight), interp_pixels5, frameWidth * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &pBitmap);
+				hr = pRenderTarget->CreateBitmap(D2D1::SizeU(bitmapWidth, bitmapHeight), interp_pixels5, bitmapWidth * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &pBitmap);
 
 				// Draw a bitmap.
 				pRenderTarget->DrawBitmap(
@@ -858,13 +1230,84 @@ void MainWindow::OnPaint()
 					D2D1::RectF(
 						0,
 						0,
-						frameWidth,
-						frameHeight
+						bitmapWidth,
+						bitmapHeight
 					),
 					1.0
 				);
 
 				SafeRelease(&pBitmap);
+
+				vector<ID2D1PathGeometry*> pShapeGeometries;
+				//ID2D1PathGeometry* pKnotGeometry;
+				//HRESULT hr = pFactory->CreatePathGeometry(&pKnotGeometry);
+
+				/*for (int i = 0, len = izePoints.size(); i < len; i++) {
+					ID2D1PathGeometry* pGeometry;
+					hr = pFactory->CreatePathGeometry(&pGeometry);
+					pShapeGeometries.push_back(pGeometry);
+					if (SUCCEEDED(hr))
+					{
+						ID2D1GeometrySink* pSink = NULL;
+						hr = pGeometry->Open(&pSink);
+						if (SUCCEEDED(hr))
+						{
+							Stroke strokey;
+
+							if (izePoints[i].size() == 0) {
+								continue;
+							}
+							for (int j = 0, jLen = izePoints[i].size(); j < jLen; j++) {
+								strokey.x.push_back(izePoints[i][j].x);
+								strokey.y.push_back(izePoints[i][j].y);
+							}
+							vector<Primitive> prims = addstroke(strokey, 0, 0);
+							//pSink->SetFillMode(D2D1_FILL_MODE_ALTERNATE);
+							pSink->BeginFigure(
+								D2D1::Point2F(izePoints[i][0].x, izePoints[i][0].y),
+								//D2D1::Point2F(prims[0].points[0].x, prims[0].points[0].y),
+								D2D1_FIGURE_BEGIN_HOLLOW
+							);
+							for (int j = 1, jLen = izePoints[i].size(); j < jLen; j++) {
+								if (prims[j].type == "BezierCurve") {
+									pSink->AddBezier(D2D1::BezierSegment(
+										D2D1::Point2F(prims[j].points[1].x, prims[j].points[1].y),
+										D2D1::Point2F(prims[j].points[2].x, prims[j].points[2].y),
+										D2D1::Point2F(prims[j].points[3].x, prims[j].points[3].y)
+									));
+								}
+								else if (prims[j].type == "Lineto") {
+									for (int k = j == 0 ? 1 : 0, kLen = prims[j].points.size(); k < kLen; k++) {
+										pSink->AddLine(D2D1::Point2F(prims[j].points[k].x, prims[j].points[k].y));
+									}
+								}
+								//pSink->AddLine(D2D1::Point2F(izePoints[i][j].x, izePoints[i][j].y));
+							}
+							pSink->EndFigure(D2D1_FIGURE_END_OPEN);
+							pSink->Close();
+							SafeRelease(&pSink);
+						}
+					}
+				}
+				for (int i = 0, len = izePoints.size(); i < len; i++) {
+					ID2D1TransformedGeometry* pTransformedGeometry;
+					const D2D1_MATRIX_3X2_F identity = D2D1::Matrix3x2F::Identity();
+					hr = pFactory->CreateTransformedGeometry(
+						pShapeGeometries[i],
+						identity,
+						&pTransformedGeometry
+					);
+					pBrush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f));
+					//pBrush->SetColor(D2D1::ColorF(izeColors[i].r / 255.0f, izeColors[i].g / 255.0f, izeColors[i].b / 255.0f, (izeColors[i].r == 0 && izeColors[i].g == 0 && izeColors[i].b == 0) ? 1.0f : 1.0f));
+					//pRenderTarget->FillGeometry(pTransformedGeometry, pBrush);
+					pRenderTarget->DrawGeometry(pTransformedGeometry, pBrush, 2.0f, pStrokeStyle);
+					SafeRelease(&pTransformedGeometry);
+				}
+
+				for (int i = 0, len = pShapeGeometries.size(); i < len; i++) {
+					SafeRelease(&pShapeGeometries[i]);
+				}
+				pShapeGeometries.clear();*/
 
 				hr = pRenderTarget->EndDraw();
 				prevFrame = interp_pixels2;
@@ -874,7 +1317,7 @@ void MainWindow::OnPaint()
 			delete[] interp_pixels4;
 			delete[] interp_pixels;
 			delete[] interp_pixels2;
-			break;
+			//break;
 		}
 
 		string s1 = "bytecount: " + to_string(bytecount) + "\n";
