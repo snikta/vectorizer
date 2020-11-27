@@ -667,8 +667,6 @@ void MainWindow::OnPaint()
 			char* interp_pixels = curFrame;
 			char* interp_pixels2 = new char[frameWidth * frameHeight * 4];
 
-			//int y;
-			//int x;
 			int rows;
 			int cols;
 
@@ -676,6 +674,10 @@ void MainWindow::OnPaint()
 			map<int, int> totalPixelCountPerColor;
 			vector<IntPoint> startPoints;
 			map<int, vector<IntPoint>> startKnotsByColor;
+
+			for (int i = 0, len = (frameWidth + 20) * (frameHeight + 20) * 4; i < len; i++) {
+				interp_pixels4[i] = (UINT8)255;
+			}
 
 			{
 				typedef cv::Point3_<uint8_t> Pixel;
@@ -685,7 +687,8 @@ void MainWindow::OnPaint()
 					for (x = 0, cols = frameWidth; x < cols - 1; x += 1) {
 						int curpx = (y)* frameWidth * 4 + (x) * 4;
 						int nextpx = (y)* frameWidth * 4 + (x + 1) * 4;
-						if ((UINT8)interp_pixels2[curpx + 3] == 255 || (UINT8)interp_pixels2[nextpx + 3] == 255 || noticeablyDifferent(rgb((UINT8)interp_pixels[nextpx], (UINT8)interp_pixels[nextpx + 1], (UINT8)interp_pixels[nextpx + 2]), rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]))) {
+						bool isDiff = noticeablyDifferent(rgb((UINT8)interp_pixels[nextpx], (UINT8)interp_pixels[nextpx + 1], (UINT8)interp_pixels[nextpx + 2]), rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]));
+						if ((UINT8)interp_pixels2[curpx + 3] == 255 || (UINT8)interp_pixels2[nextpx + 3] == 255 || isDiff) {
 							continue;
 						}
 						interp_pixels2[curpx + 3] = 255;
@@ -704,43 +707,52 @@ void MainWindow::OnPaint()
 						int sum_red = 0;
 						int sum_green = 0;
 						int sum_blue = 0;
+
 						while (!q.empty()) {
 							IntPoint n = q.front();
 							curpx = (n.y) * frameWidth * 4 + (n.x) * 4;
 							rgb compColor = rgb((UINT8)interp_pixels[curpx], (UINT8)interp_pixels[curpx + 1], (UINT8)interp_pixels[curpx + 2]);
 							compColor = fillColor;
 							q.pop_front();
-							if (n.x > 0 && similarColor(interp_pixels, interp_pixels2, n.x - 1, n.y, compColor)) {
-								interp_pixels2[(n.y) * frameWidth * 4 + (n.x - 1) * 4 + 3] = (UINT8)255;
-								sum_blue += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x - 1) * 4 + 2];
-								sum_green += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x - 1) * 4 + 1];
-								sum_red += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x - 1) * 4];
-								q.push_back(IntPoint(n.x - 1, n.y));
-								qq.push_back(IntPoint(n.x - 1, n.y));
+							if (n.x > 0) {
+								if (similarColor(interp_pixels, interp_pixels2, n.x - 1, n.y, compColor)) {
+									interp_pixels2[(n.y) * frameWidth * 4 + (n.x - 1) * 4 + 3] = (UINT8)255;
+									sum_blue += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x - 1) * 4 + 2];
+									sum_green += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x - 1) * 4 + 1];
+									sum_red += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x - 1) * 4];
+									q.push_back(IntPoint(n.x - 1, n.y));
+									qq.push_back(IntPoint(n.x - 1, n.y));
+								}
 							}
-							if (n.x < cols - 1 && similarColor(interp_pixels, interp_pixels2, n.x + 1, n.y, compColor)) {
-								interp_pixels2[(n.y) * frameWidth * 4 + (n.x + 1) * 4 + 3] = (UINT8)255;
-								sum_blue += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x + 1) * 4 + 2];
-								sum_green += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x + 1) * 4 + 1];
-								sum_red += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x + 1) * 4];
-								q.push_back(IntPoint(n.x + 1, n.y));
-								qq.push_back(IntPoint(n.x + 1, n.y));
+							if (n.x < cols - 1) {
+								if (similarColor(interp_pixels, interp_pixels2, n.x + 1, n.y, compColor)) {
+									interp_pixels2[(n.y) * frameWidth * 4 + (n.x + 1) * 4 + 3] = (UINT8)255;
+									sum_blue += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x + 1) * 4 + 2];
+									sum_green += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x + 1) * 4 + 1];
+									sum_red += (UINT8)interp_pixels[(n.y) * frameWidth * 4 + (n.x + 1) * 4];
+									q.push_back(IntPoint(n.x + 1, n.y));
+									qq.push_back(IntPoint(n.x + 1, n.y));
+								}
 							}
-							if (n.y > 0 && similarColor(interp_pixels, interp_pixels2, n.x, n.y - 1, compColor)) {
-								interp_pixels2[(n.y - 1) * frameWidth * 4 + (n.x) * 4 + 3] = (UINT8)255;
-								sum_blue += (UINT8)interp_pixels[(n.y - 1) * frameWidth * 4 + (n.x) * 4 + 2];
-								sum_green += (UINT8)interp_pixels[(n.y - 1) * frameWidth * 4 + (n.x) * 4 + 1];
-								sum_red += (UINT8)interp_pixels[(n.y - 1) * frameWidth * 4 + (n.x) * 4];
-								q.push_back(IntPoint(n.x, n.y - 1));
-								qq.push_back(IntPoint(n.x, n.y - 1));
+							if (n.y > 0) {
+								if (similarColor(interp_pixels, interp_pixels2, n.x, n.y - 1, compColor)) {
+									interp_pixels2[(n.y - 1) * frameWidth * 4 + (n.x) * 4 + 3] = (UINT8)255;
+									sum_blue += (UINT8)interp_pixels[(n.y - 1) * frameWidth * 4 + (n.x) * 4 + 2];
+									sum_green += (UINT8)interp_pixels[(n.y - 1) * frameWidth * 4 + (n.x) * 4 + 1];
+									sum_red += (UINT8)interp_pixels[(n.y - 1) * frameWidth * 4 + (n.x) * 4];
+									q.push_back(IntPoint(n.x, n.y - 1));
+									qq.push_back(IntPoint(n.x, n.y - 1));
+								}
 							}
-							if (n.y < rows - 1 && similarColor(interp_pixels, interp_pixels2, n.x, n.y + 1, compColor)) {
-								interp_pixels2[(n.y + 1) * frameWidth * 4 + (n.x) * 4 + 3] = (UINT8)255;
-								sum_blue += (UINT8)interp_pixels[(n.y + 1) * frameWidth * 4 + (n.x) * 4 + 2];
-								sum_green += (UINT8)interp_pixels[(n.y + 1) * frameWidth * 4 + (n.x) * 4 + 1];
-								sum_red += (UINT8)interp_pixels[(n.y + 1) * frameWidth * 4 + (n.x) * 4];
-								q.push_back(IntPoint(n.x, n.y + 1));
-								qq.push_back(IntPoint(n.x, n.y + 1));
+							if (n.y < rows - 1) {
+								if (similarColor(interp_pixels, interp_pixels2, n.x, n.y + 1, compColor)) {
+									interp_pixels2[(n.y + 1) * frameWidth * 4 + (n.x) * 4 + 3] = (UINT8)255;
+									sum_blue += (UINT8)interp_pixels[(n.y + 1) * frameWidth * 4 + (n.x) * 4 + 2];
+									sum_green += (UINT8)interp_pixels[(n.y + 1) * frameWidth * 4 + (n.x) * 4 + 1];
+									sum_red += (UINT8)interp_pixels[(n.y + 1) * frameWidth * 4 + (n.x) * 4];
+									q.push_back(IntPoint(n.x, n.y + 1));
+									qq.push_back(IntPoint(n.x, n.y + 1));
+								}
 							}
 						}
 						int qq_len = qq.size();
@@ -756,12 +768,6 @@ void MainWindow::OnPaint()
 								interp_pixels2[pxidx + 3] = (UINT8)255;
 							}
 						}
-						/*curpx = (y)* frameWidth * 4 + (x + 1) * 4;
-						int color_value = (UINT8)interp_pixels[curpx] << 16 | (UINT8)interp_pixels[curpx+1] << 8 | (UINT8)interp_pixels[curpx+2];
-						if (startKnotsByColor.find(color_value) == startKnotsByColor.end()) {
-							startKnotsByColor[color_value] = {};
-						}
-						startKnotsByColor[color_value].push_back(IntPoint(x + 1, y));*/
 					}
 				}
 
@@ -803,10 +809,6 @@ void MainWindow::OnPaint()
 			//dst.create(src.size(), src.type());
 			//cvtColor(src, src_gray, COLOR_BGR2GRAY);
 			//CannyThreshold(0, 0);
-
-			for (int i = 0, len = (frameWidth + 20) * (frameHeight + 20) * 4; i < len; i++) {
-				interp_pixels4[i] = (UINT8)255;
-			}
 			
 			typedef cv::Point3_<uint8_t> Pixel;
 
@@ -877,6 +879,7 @@ void MainWindow::OnPaint()
 						int knotCount = knots.size();
 
 						if (knotCount == 0) {
+							addBit(0);
 							continue;
 						}
 
@@ -921,188 +924,6 @@ void MainWindow::OnPaint()
 						if (curSet.size()) {
 							sets.push_back(curSet);
 						}
-
-						/*while (sets.size() > 1) {
-							int i = 0;
-
-							auto sortClosestToStart = std::bind(sortClosest, sets[i][0], _1, _2);
-							auto sortClosestToEnd = std::bind(sortClosest, sets[i][sets[i].size() - 1], _1, _2);
-
-							vector<vector<IntPoint>> sortedStart = sets;
-							sortedStart.erase(sortedStart.begin() + i);
-
-							vector<vector<IntPoint>> sortedEnd = sets;
-							sortedEnd.erase(sortedEnd.begin() + i);
-
-							std::sort(sortedStart.begin(), sortedStart.end(), sortClosestToStart);
-							std::sort(sortedEnd.begin(), sortedEnd.end(), sortClosestToEnd);
-
-							vector<IntPoint> closestToStart = sortedStart[0];
-							vector<IntPoint> closestToEnd = sortedEnd[0];
-
-							vector<IntPoint> newSet;
-							int startDist = min(sqDist(closestToStart[0], sets[i][0]), sqDist(closestToStart[closestToStart.size() - 1], sets[i][0]));
-							int endDist = min(sqDist(closestToEnd[0], sets[i][sets[i].size() - 1]), sqDist(closestToEnd[closestToEnd.size() - 1], sets[i][sets[i].size() - 1]));
-							if (startDist < endDist) { // closer to start
-								if (sqDist(closestToStart[0], sets[i][0]) < sqDist(closestToStart[closestToStart.size() - 1], sets[i][0])) {
-									std::reverse(closestToStart.begin(), closestToStart.end());
-								}
-								newSet.insert(newSet.end(), closestToStart.begin(), closestToStart.end());
-								newSet.insert(newSet.end(), sets[i].begin(), sets[i].end());
-								sets.erase(sets.begin() + i);
-								bool breakOut = false;
-								for (int i = 0, len = sets.size(); i < len; i++) {
-									if (sets[i].size() == closestToStart.size()) {
-										for (int j = 0, jLen = sets[i].size(); j < jLen; j++) {
-											sets.erase(sets.begin() + i);
-											breakOut = true;
-											break;
-										}
-										if (breakOut) {
-											break;
-										}
-									}
-								}
-							}
-							else { // closer to end
-								if (sqDist(closestToEnd[closestToEnd.size() - 1], sets[i][sets[i].size() - 1]) < sqDist(closestToEnd[0], sets[i][sets[i].size() - 1])) {
-									std::reverse(closestToEnd.begin(), closestToEnd.end());
-								}
-								newSet.insert(newSet.end(), sets[i].begin(), sets[i].end());
-								newSet.insert(newSet.end(), closestToEnd.begin(), closestToEnd.end());
-								sets.erase(sets.begin() + i);
-								bool breakOut = false;
-								for (int i = 0, len = sets.size(); i < len; i++) {
-									if (sets[i].size() == closestToEnd.size()) {
-										for (int j = 0, jLen = sets[i].size(); j < jLen; j++) {
-											sets.erase(sets.begin() + i);
-											breakOut = true;
-											break;
-										}
-										if (breakOut) {
-											break;
-										}
-									}
-								}
-							}
-							if (newSet.size()) {
-								sets.push_back(newSet);
-							}
-						}
-
-						if (sets.size()) {
-							knots = sets[0];
-							knotCount = knots.size();
-							sets = {};
-							curSet = {};
-							for (int idx = 0, len = knotCount; idx < len; idx++) {
-								IntPoint knot = knots[idx];
-								if (idx > 0 && idx < knotCount - 1) {
-									if (sqDist(knots[idx - 1], knot) > 8) {
-										if (curSet.size()) {
-											sets.push_back(curSet);
-										}
-										curSet = { knot };
-									}
-									else {
-										curSet.push_back(knot);
-									}
-								}
-								else if (idx > 0) {
-									if (!(sqDist(knots[idx - 1], knot) <= 8)) {
-										if (curSet.size()) {
-											sets.push_back(curSet);
-										}
-										curSet = { knot };
-									}
-									else {
-										curSet.push_back(knot);
-									}
-								}
-								else if (knotCount == 1 || idx < knotCount - 1) {
-									if (!(sqDist(knots[idx + 1], knot) <= 8)) {
-										if (curSet.size()) {
-											sets.push_back(curSet);
-										}
-										curSet = { knot };
-									}
-									else {
-										curSet.push_back(knot);
-									}
-								}
-							}
-							if (curSet.size()) {
-								sets.push_back(curSet);
-							}
-
-							while (sets.size() > 1) {
-								int i = 0;
-
-								auto sortClosestToStart = std::bind(sortClosest, sets[i][0], _1, _2);
-								auto sortClosestToEnd = std::bind(sortClosest, sets[i][sets[i].size() - 1], _1, _2);
-
-								vector<vector<IntPoint>> sortedStart = sets;
-								sortedStart.erase(sortedStart.begin() + i);
-
-								vector<vector<IntPoint>> sortedEnd = sets;
-								sortedEnd.erase(sortedEnd.begin() + i);
-
-								std::sort(sortedStart.begin(), sortedStart.end(), sortClosestToStart);
-								std::sort(sortedEnd.begin(), sortedEnd.end(), sortClosestToEnd);
-
-								vector<IntPoint> closestToStart = sortedStart[0];
-								vector<IntPoint> closestToEnd = sortedEnd[0];
-
-								vector<IntPoint> newSet;
-								int startDist = min(sqDist(closestToStart[0], sets[i][0]), sqDist(closestToStart[closestToStart.size() - 1], sets[i][0]));
-								int endDist = min(sqDist(closestToEnd[0], sets[i][sets[i].size() - 1]), sqDist(closestToEnd[closestToEnd.size() - 1], sets[i][sets[i].size() - 1]));
-								if (startDist < endDist) { // closer to start
-									if (sqDist(closestToStart[0], sets[i][0]) < sqDist(closestToStart[closestToStart.size() - 1], sets[i][0])) {
-										std::reverse(closestToStart.begin(), closestToStart.end());
-									}
-									newSet.insert(newSet.end(), closestToStart.begin(), closestToStart.end());
-									newSet.insert(newSet.end(), sets[i].begin(), sets[i].end());
-									sets.erase(sets.begin() + i);
-									bool breakOut = false;
-									for (int i = 0, len = sets.size(); i < len; i++) {
-										if (sets[i].size() == closestToStart.size()) {
-											for (int j = 0, jLen = sets[i].size(); j < jLen; j++) {
-												sets.erase(sets.begin() + i);
-												breakOut = true;
-												break;
-											}
-											if (breakOut) {
-												break;
-											}
-										}
-									}
-								}
-								else { // closer to end
-									if (sqDist(closestToEnd[closestToEnd.size() - 1], sets[i][sets[i].size() - 1]) < sqDist(closestToEnd[0], sets[i][sets[i].size() - 1])) {
-										std::reverse(closestToEnd.begin(), closestToEnd.end());
-									}
-									newSet.insert(newSet.end(), sets[i].begin(), sets[i].end());
-									newSet.insert(newSet.end(), closestToEnd.begin(), closestToEnd.end());
-									sets.erase(sets.begin() + i);
-									bool breakOut = false;
-									for (int i = 0, len = sets.size(); i < len; i++) {
-										if (sets[i].size() == closestToEnd.size()) {
-											for (int j = 0, jLen = sets[i].size(); j < jLen; j++) {
-												sets.erase(sets.begin() + i);
-												breakOut = true;
-												break;
-											}
-											if (breakOut) {
-												break;
-											}
-										}
-									}
-								}
-								if (newSet.size()) {
-									sets.push_back(newSet);
-								}
-							}
-						}*/
 						
 						for (int i = 0, len = sets.size(); i < len; i++) {
 							if (sets[i].size() == 0) {
@@ -1246,77 +1067,6 @@ void MainWindow::OnPaint()
 				);
 
 				SafeRelease(&pBitmap);
-
-				vector<ID2D1PathGeometry*> pShapeGeometries;
-				//ID2D1PathGeometry* pKnotGeometry;
-				//HRESULT hr = pFactory->CreatePathGeometry(&pKnotGeometry);
-
-				/*for (int i = 0, len = izePoints.size(); i < len; i++) {
-					ID2D1PathGeometry* pGeometry;
-					hr = pFactory->CreatePathGeometry(&pGeometry);
-					pShapeGeometries.push_back(pGeometry);
-					if (SUCCEEDED(hr))
-					{
-						ID2D1GeometrySink* pSink = NULL;
-						hr = pGeometry->Open(&pSink);
-						if (SUCCEEDED(hr))
-						{
-							Stroke strokey;
-
-							if (izePoints[i].size() == 0) {
-								continue;
-							}
-							for (int j = 0, jLen = izePoints[i].size(); j < jLen; j++) {
-								strokey.x.push_back(izePoints[i][j].x);
-								strokey.y.push_back(izePoints[i][j].y);
-							}
-							vector<Primitive> prims = addstroke(strokey, 0, 0);
-							//pSink->SetFillMode(D2D1_FILL_MODE_ALTERNATE);
-							pSink->BeginFigure(
-								D2D1::Point2F(izePoints[i][0].x, izePoints[i][0].y),
-								//D2D1::Point2F(prims[0].points[0].x, prims[0].points[0].y),
-								D2D1_FIGURE_BEGIN_HOLLOW
-							);
-							for (int j = 1, jLen = izePoints[i].size(); j < jLen; j++) {
-								if (prims[j].type == "BezierCurve") {
-									pSink->AddBezier(D2D1::BezierSegment(
-										D2D1::Point2F(prims[j].points[1].x, prims[j].points[1].y),
-										D2D1::Point2F(prims[j].points[2].x, prims[j].points[2].y),
-										D2D1::Point2F(prims[j].points[3].x, prims[j].points[3].y)
-									));
-								}
-								else if (prims[j].type == "Lineto") {
-									for (int k = j == 0 ? 1 : 0, kLen = prims[j].points.size(); k < kLen; k++) {
-										pSink->AddLine(D2D1::Point2F(prims[j].points[k].x, prims[j].points[k].y));
-									}
-								}
-								//pSink->AddLine(D2D1::Point2F(izePoints[i][j].x, izePoints[i][j].y));
-							}
-							pSink->EndFigure(D2D1_FIGURE_END_OPEN);
-							pSink->Close();
-							SafeRelease(&pSink);
-						}
-					}
-				}
-				for (int i = 0, len = izePoints.size(); i < len; i++) {
-					ID2D1TransformedGeometry* pTransformedGeometry;
-					const D2D1_MATRIX_3X2_F identity = D2D1::Matrix3x2F::Identity();
-					hr = pFactory->CreateTransformedGeometry(
-						pShapeGeometries[i],
-						identity,
-						&pTransformedGeometry
-					);
-					pBrush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 1.0f));
-					//pBrush->SetColor(D2D1::ColorF(izeColors[i].r / 255.0f, izeColors[i].g / 255.0f, izeColors[i].b / 255.0f, (izeColors[i].r == 0 && izeColors[i].g == 0 && izeColors[i].b == 0) ? 1.0f : 1.0f));
-					//pRenderTarget->FillGeometry(pTransformedGeometry, pBrush);
-					pRenderTarget->DrawGeometry(pTransformedGeometry, pBrush, 2.0f, pStrokeStyle);
-					SafeRelease(&pTransformedGeometry);
-				}
-
-				for (int i = 0, len = pShapeGeometries.size(); i < len; i++) {
-					SafeRelease(&pShapeGeometries[i]);
-				}
-				pShapeGeometries.clear();*/
 
 				hr = pRenderTarget->EndDraw();
 				prevFrame = interp_pixels2;
