@@ -412,10 +412,10 @@ bool sameColor(rgba px1, rgba px2) {
 
 rgba getPixelColor(char* imd, int x, int y) {
 	return rgba(
-		(UINT8)imd[y * 980 * 4 + x * 4],
-		(UINT8)imd[y * 980 * 4 + x * 4 + 1],
-		(UINT8)imd[y * 980 * 4 + x * 4 + 2],
-		(UINT8)imd[y * 980 * 4 + x * 4 + 3]
+		(UINT8)imd[y * (frameWidth + 20) * 4 + x * 4],
+		(UINT8)imd[y * (frameWidth + 20) * 4 + x * 4 + 1],
+		(UINT8)imd[y * (frameWidth + 20) * 4 + x * 4 + 2],
+		(UINT8)imd[y * (frameWidth + 20) * 4 + x * 4 + 3]
 	);
 }
 
@@ -474,7 +474,7 @@ scanLineRetval scanLine(char* imd, int px, int py, rgba targetColor, bool _not) 
 	x = px + 1;
 
 	eq = sameColor(getPixelColor(imd, x, y), targetColor);
-	while (x < 980 && (_not ? !eq : eq)) {
+	while (x < (frameWidth + 20) && (_not ? !eq : eq)) {
 		if (_not) {
 			vector<IntPoint> abv = checkAbove(imd, x, y - 1, targetColor);
 			if (abv.size()) {
@@ -517,7 +517,7 @@ void floodFill(char *imd, int px, int py, rgba targetColor, rgba fillColor, stri
 	if (floodFillMat.find(py) != floodFillMat.end() && floodFillMat[py].find(px) != floodFillMat[py].end()) {
 		return;
 	}
-	if (px <= 0 || py <= 0 || px >= 980 || py >= 420 || sameColor(getPixelColor(imd, px, py), fillColor)) {
+	if (px <= 0 || py <= 0 || px >= (frameWidth + 20) || py >= (frameHeight + 20) || sameColor(getPixelColor(imd, px, py), fillColor)) {
 		return;
 	}
 
@@ -527,10 +527,10 @@ void floodFill(char *imd, int px, int py, rgba targetColor, rgba fillColor, stri
 	int minX = r.minX;
 	int maxX = r.maxX;
 
-	imd[py * 980 * 4 + px * 4] = 255;
-	imd[py * 980 * 4 + px * 4 + 1] = 255;
-	imd[py * 980 * 4 + px * 4 + 2] = 255;
-	imd[py * 980 * 4 + px * 4 + 3] = 255;
+	imd[py * (frameWidth + 20) * 4 + px * 4] = 255;
+	imd[py * (frameWidth + 20) * 4 + px * 4 + 1] = 255;
+	imd[py * (frameWidth + 20) * 4 + px * 4 + 2] = 255;
+	imd[py * (frameWidth + 20) * 4 + px * 4 + 3] = 255;
 
 	vector<IntPoint> newKnots;
 	for (int i = minX; i <= maxX; i++) {
@@ -775,6 +775,9 @@ void MainWindow::OnPaint()
 							interp_pixels2[pxidx + 3] = 255;
 						}
 						int color_value = (UINT8)interp_pixels2[pxidx + 2] << 16 | (UINT8)interp_pixels2[pxidx + 1] << 8 | (UINT8)interp_pixels2[pxidx];
+						if (color_value == 0) {
+							continue;
+						}
 						if (x > 0) {
 							int pxidx_prev = (y)* frameWidth * 4 + (x - 1) * 4;
 							if (interp_pixels2[pxidx + 2] == interp_pixels2[pxidx_prev + 2] && interp_pixels2[pxidx + 1] == interp_pixels2[pxidx_prev + 1] && interp_pixels2[pxidx] == interp_pixels2[pxidx_prev]) {
@@ -797,14 +800,14 @@ void MainWindow::OnPaint()
 				}
 			}
 
-			/*dst.create(src.size(), src.type());
-			cvtColor(src, src_gray, COLOR_BGR2GRAY);
-			CannyThreshold(0, 0);*/
+			//dst.create(src.size(), src.type());
+			//cvtColor(src, src_gray, COLOR_BGR2GRAY);
+			//CannyThreshold(0, 0);
 
 			for (int i = 0, len = (frameWidth + 20) * (frameHeight + 20) * 4; i < len; i++) {
 				interp_pixels4[i] = (UINT8)255;
 			}
-
+			
 			typedef cv::Point3_<uint8_t> Pixel;
 
 			/*int canny_rows = dst.rows;
@@ -819,10 +822,10 @@ void MainWindow::OnPaint()
 				}
 				if (p.x != (UINT8)0 || p.y != (UINT8)0 || p.z != (UINT8)0)
 				{
-					interp_pixels4[(y + 10) * 980 * 4 + (x + 10) * 4] = (UINT8)0;
-					interp_pixels4[(y + 10) * 980 * 4 + (x + 10) * 4 + 1] = (UINT8)0;
-					interp_pixels4[(y + 10) * 980 * 4 + (x + 10) * 4 + 2] = (UINT8)0;
-					interp_pixels4[(y + 10) * 980 * 4 + (x + 10) * 4 + 3] = (UINT8)255;
+					interp_pixels4[(y + 10) * (frameWidth + 20) * 4 + (x + 10) * 4] = (UINT8)0;
+					interp_pixels4[(y + 10) * (frameWidth + 20) * 4 + (x + 10) * 4 + 1] = (UINT8)0;
+					interp_pixels4[(y + 10) * (frameWidth + 20) * 4 + (x + 10) * 4 + 2] = (UINT8)0;
+					interp_pixels4[(y + 10) * (frameWidth + 20) * 4 + (x + 10) * 4 + 3] = (UINT8)255;
 				}
 				x++;
 			}*/
@@ -861,10 +864,10 @@ void MainWindow::OnPaint()
 
 						for (auto pt : it->second)
 						{
-							interp_pixels4[(pt.y + 10) * 980 * 4 + (pt.x + 10) * 4] = (UINT8)0;
-							interp_pixels4[(pt.y + 10) * 980 * 4 + (pt.x + 10) * 4 + 1] = (UINT8)0;
-							interp_pixels4[(pt.y + 10) * 980 * 4 + (pt.x + 10) * 4 + 2] = (UINT8)0;
-							interp_pixels4[(pt.y + 10) * 980 * 4 + (pt.x + 10) * 4 + 3] = (UINT8)255;
+							interp_pixels4[(pt.y + 10) * (frameWidth + 20) * 4 + (pt.x + 10) * 4] = (UINT8)0;
+							interp_pixels4[(pt.y + 10) * (frameWidth + 20) * 4 + (pt.x + 10) * 4 + 1] = (UINT8)0;
+							interp_pixels4[(pt.y + 10) * (frameWidth + 20) * 4 + (pt.x + 10) * 4 + 2] = (UINT8)0;
+							interp_pixels4[(pt.y + 10) * (frameWidth + 20) * 4 + (pt.x + 10) * 4 + 3] = (UINT8)255;
 						}
 
 						vector<vector<IntPoint>> izePoints = {};
@@ -1205,10 +1208,10 @@ void MainWindow::OnPaint()
 					}
 				}
 
-				for (int y = 0, rows = 400; y < rows; y++) {
-					for (int x = 0, cols = 960 - 1; x < cols; x++) {
-						int idx = y * 960 * 4 + x * 4;
-						int idx_next = y * 960 * 4 + (x + 1) * 4;
+				for (int y = 0, rows = frameHeight; y < rows; y++) {
+					for (int x = 0, cols = frameWidth - 1; x < cols; x++) {
+						int idx = y * frameWidth * 4 + x * 4;
+						int idx_next = y * frameWidth * 4 + (x + 1) * 4;
 						if ((UINT8)interp_pixels5[idx_next + 3] != (UINT8)255) {
 							interp_pixels5[idx_next] = interp_pixels5[idx];
 							interp_pixels5[idx_next + 1] = interp_pixels5[idx + 1];
