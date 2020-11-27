@@ -60,8 +60,8 @@ static void CannyThreshold(int, void*)
 	src.copyTo(dst, detected_edges);
 }
 
-int frameWidth = 960;
-int frameHeight = 400;
+int frameWidth = 1920;
+int frameHeight = 800;
 
 template <class T> void SafeRelease(T** ppT)
 {
@@ -125,7 +125,7 @@ void addDelta(IntPoint delta) {
 	if (delta.x >= -1 && delta.x <= 1 && delta.y >= -1 && delta.y <= 1) {
 		addBit(0);
 		
-		/*if (delta.x == -1 && delta.y == -1) {
+		if (delta.x == -1 && delta.y == -1) {
 			addBit(0);
 			addBit(0);
 			addBit(0);
@@ -164,14 +164,14 @@ void addDelta(IntPoint delta) {
 			addBit(1);
 			addBit(1);
 			addBit(1);
-		}*/
+		}
 
-		if (delta.x == -1) { addBit(0); addBit(0); }
+		/*if (delta.x == -1) { addBit(0); addBit(0); }
 		else if (delta.x == 0) { addBit(0); addBit(1); }
 		else if (delta.x == 1) { addBit(1); addBit(0); }
 		if (delta.y == -1) { addBit(0); addBit(0); }
 		else if (delta.y == 0) { addBit(0); addBit(1); }
-		else if (delta.y == 1) { addBit(1); addBit(0); }
+		else if (delta.y == 1) { addBit(1); addBit(0); }*/
 	}
 	else {
 		addBit(1);
@@ -775,9 +775,9 @@ void MainWindow::OnPaint()
 							interp_pixels2[pxidx + 3] = 255;
 						}
 						int color_value = (UINT8)interp_pixels2[pxidx + 2] << 16 | (UINT8)interp_pixels2[pxidx + 1] << 8 | (UINT8)interp_pixels2[pxidx];
-						if (color_value == 0) {
+						/*if (color_value == 0) {
 							continue;
-						}
+						}*/
 						if (x > 0) {
 							int pxidx_prev = (y)* frameWidth * 4 + (x - 1) * 4;
 							if (interp_pixels2[pxidx + 2] == interp_pixels2[pxidx_prev + 2] && interp_pixels2[pxidx + 1] == interp_pixels2[pxidx_prev + 1] && interp_pixels2[pxidx] == interp_pixels2[pxidx_prev]) {
@@ -840,12 +840,6 @@ void MainWindow::OnPaint()
 					if (totalPixelCountPerColor[it->first] >= 16) {
 						colorCount++;
 					}
-				}
-
-				{
-					string s1 = "colorCount: " + to_string(colorCount) + "\n";
-					std::wstring widestr = std::wstring(s1.begin(), s1.end());
-					OutputDebugStringW(widestr.c_str());
 				}
 
 				string bits = bitify(colorCount >> 8) + bitify(colorCount & 0xFF);
@@ -1141,7 +1135,7 @@ void MainWindow::OnPaint()
 							addBit(bit == '1');
 						}
 
-						bits = bitify(contourCount >> 8) + bitify(contourCount & 0xFF);
+						bits = lastChars(bitify(contourCount >> 6), 6) + lastChars(bitify(contourCount & 0xFF), 6);
 						for (auto bit : bits) {
 							addBit(bit == '1');
 						}
@@ -1149,16 +1143,11 @@ void MainWindow::OnPaint()
 						for (int i = 0, len = contours.size(); i < len; i++) {
 							IntPoint firstPoint(contours[i][0].x, contours[i][0].y);
 							bytecount += 6.0;
-							string bits = bitify(firstPoint.x >> 8) + bitify(firstPoint.x & 0xFF) + bitify(firstPoint.y >> 8) + bitify(firstPoint.y & 0xFF);
+							string bits = lastChars(bitify(firstPoint.x >> 6), 6) + lastChars(bitify(firstPoint.x & 0xFF), 6) + lastChars(bitify(firstPoint.y >> 6), 6) + lastChars(bitify(firstPoint.y & 0xFF), 6);
 							for (auto bit : bits) {
 								addBit(bit == '1');
 							}
-							int innerContourSize = contours[i].size();
-
-							bits = bitify(innerContourSize >> 8) + bitify(innerContourSize & 0xFF);
-							for (auto bit : bits) {
-								addBit(bit == '1');
-							}
+							
 							IntPoint lastDiff(0, 0);
 							IntPoint curPoint(firstPoint.x, firstPoint.y);
 							int idx = contours[i][0].y * frameWidth * 4 + contours[i][0].x * 4;
@@ -1167,9 +1156,26 @@ void MainWindow::OnPaint()
 							interp_pixels5[idx] = (UINT8)blue;
 							interp_pixels5[idx + 3] = (UINT8)255;
 							if (contours[i].size() == 1) {
-
+								addBit(0);
 							}
 							else {
+								addBit(1);
+
+								int innerContourSize = contours[i].size();
+
+								if (innerContourSize <= 0xFF) {
+									addBit(0);
+									bits = bitify(innerContourSize & 0xFF);
+								}
+								else {
+									addBit(1);
+									bits = lastChars(bitify(innerContourSize >> 6), 6) + lastChars(bitify(innerContourSize & 0xFF), 6);
+								}
+								
+								for (auto bit : bits) {
+									addBit(bit == '1');
+								}
+
 								IntPoint curDelta(0, 0);
 								for (int j = 1, jLen = contours[i].size(); j < jLen; j++) {
 									IntPoint newDiff(contours[i][j].x - contours[i][j - 1].x, contours[i][j].y - contours[i][j - 1].y);
