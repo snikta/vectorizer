@@ -40,44 +40,8 @@ using cv::Size;
 using cv::COLOR_BGR2GRAY;
 typedef cv::Point3_<uint8_t> Pixel;
 
-Mat src, src_gray;
-Mat dst, detected_edges;
-int lowThreshold = 30;
-const int max_lowThreshold = 30;
-const int ratio = 3;
-const int kernel_size = 3;
-const char* window_name = "Edge Map";
-int maxX;
-int py;
-map<int, map<int, bool>> visited;
-bool layoutDone = false;
-
-static void CannyThreshold(int, void*)
-{
-	blur(src_gray, detected_edges, Size(3, 3));
-	Canny(detected_edges, detected_edges, lowThreshold, lowThreshold * ratio, kernel_size);
-	dst = Scalar::all(0);
-	src.copyTo(dst, detected_edges);
-}
-
 int frameWidth = 1920;
 int frameHeight = 800;
-
-template <class T> void SafeRelease(T** ppT)
-{
-	if (*ppT)
-	{
-		(*ppT)->Release();
-		*ppT = NULL;
-	}
-}
-
-struct DecodeEl {
-	int x;
-	int y;
-	int run_length;
-	DecodeEl(int x, int y, int run_length) : x(x), y(y), run_length(run_length) {};
-};
 
 string bytes = "";
 int curBitIdx = 0;
@@ -97,6 +61,7 @@ void addBit(bool bit) {
 		curBitSet = 0;
 	}
 }
+
 int getBit() {
 	if (curBitIdx == 8) {
 		curBitIdx = 0;
@@ -109,6 +74,27 @@ int getBit() {
 	curBitIdx++;
 	return bit;
 }
+
+Mat src;
+Mat dst;
+
+template <class T> void SafeRelease(T** ppT)
+{
+	if (*ppT)
+	{
+		(*ppT)->Release();
+		*ppT = NULL;
+	}
+}
+
+int hexToDec(string hexStr) {
+	std::stringstream stream;
+	int dec;
+	stream << hexStr;
+	stream >> std::hex >> dec;
+	return dec;
+}
+
 string bitify(char bite) {
 	string bits = "";
 	for (int i = 7; i >= 0; i--) {
@@ -119,6 +105,30 @@ string bitify(char bite) {
 
 string lastChars(string str, int count) {
 	return str.substr(str.size() - count, std::string::npos);
+}
+
+void addPartialDelta(int coord) {
+	if (coord >= -1 && coord <= 1) {
+		addBit(0);
+		if (coord == 0) {
+			addBit(0);
+		}
+		else if (coord == 1) {
+			addBit(1);
+			addBit(0);
+		}
+		else if (coord == -1) {
+			addBit(1);
+			addBit(1);
+		}
+	}
+	else {
+		addBit(1);
+		string bits = (coord < 0 ? '1' : '0') + lastChars(bitify(abs(coord) >> 6), 6) + lastChars(bitify(abs(coord) & 0xFF), 6);
+		for (auto bit : bits) {
+			addBit(bit == '1');
+		}
+	}
 }
 
 void addDelta(IntPoint delta) {
@@ -165,13 +175,6 @@ void addDelta(IntPoint delta) {
 			addBit(1);
 			addBit(1);
 		}
-
-		/*if (delta.x == -1) { addBit(0); addBit(0); }
-		else if (delta.x == 0) { addBit(0); addBit(1); }
-		else if (delta.x == 1) { addBit(1); addBit(0); }
-		if (delta.y == -1) { addBit(0); addBit(0); }
-		else if (delta.y == 0) { addBit(0); addBit(1); }
-		else if (delta.y == 1) { addBit(1); addBit(0); }*/
 	}
 	else {
 		addBit(1);
@@ -338,8 +341,6 @@ void MainWindow::CalculateLayout()
 		const float y = size.height / 2;
 		const float radius = min(x, y);
 	}
-
-	layoutDone = true;
 }
 
 HRESULT MainWindow::CreateGraphicsResources()
@@ -593,7 +594,7 @@ void MainWindow::OnPaint()
 		std::ofstream myfile;
 		myfile.open("chroma.txt", std::ios_base::binary | std::ios_base::out);
 
-		int realFrameCount = 3288;// mov.get(cv::CAP_PROP_FRAME_COUNT);
+		int realFrameCount = 2100;// mov.get(cv::CAP_PROP_FRAME_COUNT);
 		int frameDiff = realFrameCount - frameIndex;//mov.get(cv::CAP_PROP_POS_FRAMES);
 		myfile << (char)(UINT8)(frameDiff >> 8 & 0xFF);
 		myfile << (char)(UINT8)(frameDiff & 0xFF);
@@ -805,32 +806,8 @@ void MainWindow::OnPaint()
 					}
 				}
 			}
-
-			//dst.create(src.size(), src.type());
-			//cvtColor(src, src_gray, COLOR_BGR2GRAY);
-			//CannyThreshold(0, 0);
 			
 			typedef cv::Point3_<uint8_t> Pixel;
-
-			/*int canny_rows = dst.rows;
-			int canny_cols = dst.cols;
-			int x = 0;
-			int y = 0;
-			for (Pixel& p : cv::Mat_<Pixel>(dst)) {
-				if (x == canny_cols)
-				{
-					x = 0;
-					y++;
-				}
-				if (p.x != (UINT8)0 || p.y != (UINT8)0 || p.z != (UINT8)0)
-				{
-					interp_pixels4[(y + 10) * (frameWidth + 20) * 4 + (x + 10) * 4] = (UINT8)0;
-					interp_pixels4[(y + 10) * (frameWidth + 20) * 4 + (x + 10) * 4 + 1] = (UINT8)0;
-					interp_pixels4[(y + 10) * (frameWidth + 20) * 4 + (x + 10) * 4 + 2] = (UINT8)0;
-					interp_pixels4[(y + 10) * (frameWidth + 20) * 4 + (x + 10) * 4 + 3] = (UINT8)255;
-				}
-				x++;
-			}*/
 
 			if (true || i == 1) {
 				int contourCount = 0;
@@ -1000,6 +977,7 @@ void MainWindow::OnPaint()
 								IntPoint curDelta(0, 0);
 								for (int j = 1, jLen = contours[i].size(); j < jLen; j++) {
 									IntPoint newDiff(contours[i][j].x - contours[i][j - 1].x, contours[i][j].y - contours[i][j - 1].y);
+
 									if (newDiff.x == lastDiff.x && newDiff.y == lastDiff.y) {
 										addBit(0);
 										bytecount += 0.125;
@@ -1009,7 +987,6 @@ void MainWindow::OnPaint()
 										addDelta(newDiff);
 										curDelta.x = newDiff.x;
 										curDelta.y = newDiff.y;
-										bytecount += 0.125 + 0.5;
 									}
 									else {
 										addBit(1);
@@ -1098,6 +1075,10 @@ void MainWindow::OnPaint()
 
 		myfile << bytes;
 		myfile.close();
+
+		s1 = "bytes.size(): " + to_string(bytes.size()) + "\n";
+		widestr = std::wstring(s1.begin(), s1.end());
+		OutputDebugStringW(widestr.c_str());
 
 		if (FAILED(hr) || hr == D2DERR_RECREATE_TARGET)
 		{
